@@ -1,6 +1,6 @@
 // 체험 모드 백엔드: 이 기기(브라우저)에만 저장. Supabase 함수(schema.sql)와 같은 규칙으로 동작.
 import { todayISO, addDays } from '../logic/dates.js';
-import { balanceOf } from '../logic/coins.js';
+import { balanceOf, goalSum, goalParts, cashUsedThisMonth } from '../logic/coins.js';
 
 const KEY = 'questCoin.demo';
 const chan = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('questCoin.demo') : null;
@@ -31,12 +31,12 @@ export async function init() {}
 
 function seed(name, password, pin, withSamples) {
   const space = { id: uid(), code: 'DEMO01', name: name || '우리 집', coin_rate: 100, auto_approve: false, created_at: now() };
-  db = { space, role: 'parent', password, pin, kids: [], missions: [], submissions: [], quests: [], claims: [], items: [], requests: [], ledger: [] };
+  db = { space, role: 'parent', password, pin, kids: [], missions: [], submissions: [], quests: [], claims: [], items: [], requests: [], ledger: [], goals: [] };
   if (withSamples) {
     const t = todayISO();
     const base = { space_id: space.id, created_at: now(), active: true };
-    const k1 = { ...base, id: uid(), name: '하늘', emoji: '🐯', color: '#7c5cff', sort: 0 };
-    const k2 = { ...base, id: uid(), name: '바다', emoji: '🐰', color: '#ff7aa8', sort: 1 };
+    const k1 = { ...base, id: uid(), name: '하늘', emoji: '🐯', color: '#7c5cff', sort: 0, cash_limit: 10000 };
+    const k2 = { ...base, id: uid(), name: '바다', emoji: '🐰', color: '#ff7aa8', sort: 1, cash_limit: 10000 };
     db.kids.push(k1, k2);
     const m = (o) => ({ ...base, id: uid(), kind: 'chore', memo: null, kid_ids: [], repeat: 'none', repeat_days: [], start_date: t, due_date: null, expires_at: null, first_come: false, ...o });
     db.missions.push(
@@ -82,7 +82,8 @@ export async function joinSpace() {
 export async function loadAll(spaceId) {
   const d = read();
   if (!d || d.space.id !== spaceId) return null;
-  return structuredClone({ space: d.space, role: d.role, kids: d.kids, missions: d.missions, submissions: d.submissions, quests: d.quests, claims: d.claims, items: d.items, requests: d.requests, ledger: d.ledger });
+  d.goals = d.goals || []; // 예전 체험 데이터
+  return structuredClone({ goals: d.goals, space: d.space, role: d.role, kids: d.kids, missions: d.missions, submissions: d.submissions, quests: d.quests, claims: d.claims, items: d.items, requests: d.requests, ledger: d.ledger });
 }
 export function subscribe(_spaceId, onChange) {
   listeners.add(onChange);
@@ -114,7 +115,7 @@ export async function save(kind, row) {
     write();
     return cur;
   }
-  const r = { active: true, sort: 0, kid_ids: [], ...row, id: uid(), space_id: S().space.id, created_at: now() };
+  const r = { active: true, sort: 0, kid_ids: [], ...(kind === 'kids' ? { cash_limit: 10000 } : {}), ...row, id: uid(), space_id: S().space.id, created_at: now() };
   list.push(r);
   write();
   return r;
@@ -124,7 +125,10 @@ export async function remove(kind, id) {
   const d = S();
   d[kind] = d[kind].filter((r) => r.id !== id);
   // 연결된 기록도 같이 정리 (DB 의 on delete cascade 와 같게)
-  if (kind === 'kids') ['submissions', 'claims', 'requests', 'ledger'].forEach((k) => (d[k] = d[k].filter((r) => r.kid_id !== id)));
+  if (kind === 'kids') {
+    ['submissions', 'claims', 'requests', 'ledger'].forEach((k) => (d[k] = d[k].filter((r) => r.kid_id !== id)));
+    (d.goals || []).forEach((g) => { if (g.kid_id === id) g.kid_id = null; });
+  }
   if (kind === 'missions') d.submissions = d.submissions.filter((r) => r.mission_id !== id);
   if (kind === 'quests') d.claims = d.claims.filter((r) => r.quest_id !== id);
   write();
@@ -225,6 +229,12 @@ export async function createRequest({ kidId, kind, title = null, coins = null, i
     title = it.title; coins = it.price; emoji = it.emoji;
   } else if (kind === 'cash') {
     title = '용돈 교환'; emoji = '💵'; won = coins * d.space.coin_rate;
+    const k = find('kids', kidId);
+    if (k.cash_limit != null) {
+      const used = cashUsedThisMonth(d.requests, kidId);
+      if (used + won > k.cash_limit)
+        fail(`이번 달 용돈 한도를 넘어요 (남은 한도 ${Math.max(k.cash_limit - used, 0)}원). 남은 코인은 상점이나 같이 모으기에 쓰거나 다음 달까지 모아둘 수 있어요`);
+    }
   } else if (kind === 'proxy') {
     if (!title) fail('무엇을 사고 싶은지 적어주세요');
     emoji = '🙏';
@@ -258,6 +268,62 @@ export async function adjust(kidId, amount, reason) {
   if (!amount) fail('0 이 아닌 숫자를 입력해주세요');
   addLedger(kidId, amount, String(reason || '').trim() || (amount > 0 ? '보너스' : '차감'), 'adjust');
   write();
+}
+
+export async function transfer(fromId, toId, coins, memo) {
+  const d = S();
+  const a = find('kids', fromId) || fail('아이를 찾을 수 없어요');
+  const b = find('kids', toId) || fail('받을 사람을 찾을 수 없어요');
+  if (a.id === b.id) fail('나에게는 보낼 수 없어요');
+  if (!(coins > 0)) fail('코인을 1개 이상 입력해주세요');
+  if (balanceOf(d.ledger, a.id) < coins) fail('코인이 모자라요');
+  const t = uid();
+  const m = String(memo || '').trim();
+  addLedger(a.id, -coins, `💌 ${b.name}에게 보냄${m ? ' · ' + m : ''}`, 'transfer', t);
+  addLedger(b.id, coins, `💌 ${a.name}에게 받음${m ? ' · ' + m : ''}`, 'transfer', t);
+  write();
+}
+
+const goals = () => (S().goals = S().goals || []);
+export async function goalCreate(kidId, title, emoji, target) {
+  const d = S();
+  find('kids', kidId) || fail('아이를 찾을 수 없어요');
+  title = String(title || '').trim();
+  if (!title) fail('무엇을 모을지 적어주세요');
+  if (!(target > 0)) fail('목표 코인을 입력해주세요');
+  const g = { id: uid(), space_id: d.space.id, kid_id: kidId, title, emoji: emoji || '🍗', target, status: 'open', created_at: now(), decided_at: null };
+  goals().push(g);
+  write();
+  return g;
+}
+export async function goalPut(goalId, kidId, coins) {
+  const d = S();
+  const g = goals().find((x) => x.id === goalId) || fail('목표를 찾을 수 없어요');
+  if (g.status !== 'open') fail('이미 다 모았거나 끝난 목표예요');
+  find('kids', kidId) || fail('아이를 찾을 수 없어요');
+  if (!(coins > 0)) fail('코인을 1개 이상 입력해주세요');
+  const left = g.target - goalSum(d.ledger, g.id);
+  if (coins > left) fail(`${left}코인만 더 넣으면 돼요`);
+  if (balanceOf(d.ledger, kidId) < coins) fail('코인이 모자라요');
+  addLedger(kidId, -coins, '🫙 같이 모으기 · ' + g.title, 'goal', g.id);
+  if (goalSum(d.ledger, g.id) >= g.target) g.status = 'full';
+  write();
+  return g;
+}
+export async function goalDecide(goalId, status) {
+  const d = S();
+  const g = goals().find((x) => x.id === goalId) || fail('목표를 찾을 수 없어요');
+  if (status === 'done') {
+    needParent();
+    if (g.status !== 'full') fail('아직 다 모이지 않았어요');
+  } else if (status === 'canceled') {
+    if (!['open', 'full'].includes(g.status)) fail('이미 끝난 목표예요');
+    if (g.status === 'full' && d.role !== 'parent') fail('다 모인 목표는 부모님만 취소할 수 있어요');
+    Object.entries(goalParts(d.ledger, g.id)).forEach(([kid, amt]) => { if (amt > 0) addLedger(kid, amt, '돌려받음 · ' + g.title, 'refund', g.id); });
+  } else fail('알 수 없는 상태');
+  Object.assign(g, { status, decided_at: now() });
+  write();
+  return g;
 }
 
 export function wipe() {

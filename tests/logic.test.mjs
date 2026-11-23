@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { weekStart, weekKey, monthEnd, addDays, countdown } from '../js/logic/dates.js';
 import { occursOn, kidToday, kidSurprises, liveSurprises, occurrencesInRange } from '../js/logic/missions.js';
 import { questProgress, periodOf } from '../js/logic/quests.js';
-import { balanceOf } from '../js/logic/coins.js';
+import { balanceOf, goalParts, goalSum, cashUsedThisMonth, cashLeft } from '../js/logic/coins.js';
 
 const K = 'kid1';
 const chore = (o) => ({ id: o.id, kind: 'chore', active: true, kid_ids: [], repeat: 'none', repeat_days: [], start_date: '2026-11-23', due_date: null, reward: 10, ...o });
@@ -97,4 +97,33 @@ test('말로 시킨 심부름: 오늘 목록에 완료로, 퀘스트 n개에 +1,
   assert.equal(cnt.done, 1);
   const all = questProgress({ id: 'a', goal: 'all', period: 'week', mission_ids: [], kid_ids: [] }, K, { missions, submissions: subs, claims: [] }, '2026-11-24');
   assert.equal(all.total, 7); // 매일 심부름 월~일 7개만 (말로 한 건 제외)
+});
+
+test('같이 모으기 합계', () => {
+  const L = [
+    { kid_id: 'a', amount: -30, ref_type: 'goal', ref_id: 'g' },
+    { kid_id: 'b', amount: -50, ref_type: 'goal', ref_id: 'g' },
+    { kid_id: 'a', amount: -10, ref_type: 'goal', ref_id: 'other' },
+    { kid_id: 'a', amount: 30, ref_type: 'refund', ref_id: 'g' },
+    { kid_id: 'a', amount: 100, ref_type: 'adjust', ref_id: null },
+  ];
+  assert.deepEqual(goalParts(L, 'g'), { a: 0, b: 50 });
+  assert.equal(goalSum(L, 'g'), 50);
+});
+
+test('월 용돈 한도', () => {
+  const now = new Date(2026, 10, 24, 12).getTime(); // 11월
+  const iso = (m, d) => new Date(2026, m, d, 9).toISOString();
+  const R = [
+    { kid_id: 'a', kind: 'cash', status: 'done', won: 3000, created_at: iso(10, 2) },
+    { kid_id: 'a', kind: 'cash', status: 'pending', won: 2000, created_at: iso(10, 20) },
+    { kid_id: 'a', kind: 'cash', status: 'rejected', won: 5000, created_at: iso(10, 21) },
+    { kid_id: 'a', kind: 'cash', status: 'done', won: 9000, created_at: iso(9, 30) }, // 지난달
+    { kid_id: 'a', kind: 'shop', status: 'done', won: null, created_at: iso(10, 3) },
+    { kid_id: 'b', kind: 'cash', status: 'done', won: 1000, created_at: iso(10, 3) },
+  ];
+  assert.equal(cashUsedThisMonth(R, 'a', now), 5000);
+  assert.equal(cashLeft({ id: 'a', cash_limit: 10000 }, R, now), 5000);
+  assert.equal(cashLeft({ id: 'a', cash_limit: 4000 }, R, now), 0);
+  assert.equal(cashLeft({ id: 'a', cash_limit: null }, R, now), Infinity);
 });

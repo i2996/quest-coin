@@ -14,6 +14,7 @@ import {
 } from './components.js';
 import { openSheet, closeSheet, confirmDialog, toast } from './sheet.js';
 import { confetti } from './fx.js';
+import { pushBanner, pushSettingRow } from './notify.js';
 
 const TABS = [
   { id: 'check', label: '확인', ic: '✅' },
@@ -48,7 +49,7 @@ function checkTab() {
   const subs = pendingSubs();
   const reqs = pendingReqs();
   const kids = sortedKids();
-  return `
+  return `${pushBanner()}
   <section class="p-sec"><h2>완료 확인 <span class="count">${subs.length}</span>
       ${subs.length > 1 ? '<button class="btn sm primary" data-act="approve-all">모두 승인</button>' : ''}</h2>
     ${subs.length ? `<ul class="p-list">${subs.map(subRow).join('')}</ul>` : '<p class="muted pad">확인할 심부름이 없어요</p>'}</section>
@@ -194,6 +195,7 @@ function familyTab() {
       ${mode === 'demo' ? '' : `<li class="p-row"><span class="m-emoji sm">🔑</span><div class="grow"><b>가족 코드 <code class="code">${esc(sp.code)}</code></b>
         <small>아이 폰에서 이 코드 + 가족 비밀번호로 들어와요</small></div><button class="btn sm" data-act="share-code">공유</button></li>
       <li class="p-row tap" data-act="change-secret" data-which="password"><span class="m-emoji sm">🔒</span><div class="grow"><b>가족 비밀번호 바꾸기</b></div></li>`}
+      ${pushSettingRow()}
       <li class="p-row tap" data-act="change-secret" data-which="pin"><span class="m-emoji sm">🛡️</span><div class="grow"><b>부모 PIN 바꾸기</b></div></li>
       <li class="p-row tap" data-act="parent-off"><span class="m-emoji sm">🚪</span><div class="grow"><b>이 기기 부모 모드 끄기</b><small>아이에게 폰을 빌려줄 때 (다시 켜려면 PIN)</small></div></li>
       <li class="p-row tap" data-act="gate-leave"><span class="m-emoji sm">↩️</span><div class="grow"><b>${mode === 'demo' ? '체험 끝내기' : '이 기기에서 가족 공간 나가기'}</b></div></li>

@@ -330,3 +330,7 @@ export function wipe() {
   db = null;
   try { localStorage.removeItem(KEY); } catch { /* 무시 */ }
 }
+
+// 체험 모드: 서버가 없어서 실제 알림은 보내지 않음 (이 기기 테스트 알림만)
+export async function savePush() {}
+export async function deletePush() {}

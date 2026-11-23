@@ -460,3 +460,17 @@ legend { font-size: 15px; padding: 0; margin-bottom: 6px; }
 
 .warn-box { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--hot-soft); color: var(--hot-d); font-size: 14px; line-height: 1.5; }
 .warn-box b { font-family: ui-monospace, monospace; font-weight: 700; }
+
+/* ---------- 알림 ---------- */
+.head-right { display: flex; align-items: center; gap: 8px; }
+.bell { border: 0; width: 42px; height: 42px; border-radius: 50%; background: rgba(255, 255, 255, .25); font-size: 20px; display: grid; place-items: center; }
+.bell.on { background: rgba(255, 255, 255, .9); }
+.push-banner {
+  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; margin-bottom: 14px;
+  background: var(--paper); border-radius: var(--radius); padding: 12px 10px 12px 14px; box-shadow: var(--shadow); border: 2px solid var(--pri-soft);
+}
+.push-banner .pb-ic { font-size: 26px; animation: wobble 1.6s ease-in-out infinite; display: inline-block; }
+.push-banner b { display: block; font-size: 16px; }
+.push-banner small { display: block; line-height: 1.35; }
+.icon-btn.sm { width: 30px; height: 30px; font-size: 14px; border-radius: 10px; }
+.p-row .switch { flex: none; }

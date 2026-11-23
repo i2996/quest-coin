@@ -661,3 +661,119 @@ begin
     end;
   end loop;
 end $$;
+
+-- ============================================================
+-- 폰 알림 (웹 푸시)
+--  DB 에서 일이 생기면(새 심부름·돌발 미션·완료·요청·승인 등) 알림 함수 qc-notify 를 부르고,
+--  qc-notify 가 받을 사람(아이 / 부모님) 폰으로 웹 푸시를 보내요.
+--  qc-notify 함수는 GitHub Actions('알림 함수 배포')가 Supabase 에 올려요.
+--  알림 함수가 아직 없거나 실패해도 심부름·코인 처리는 절대 막지 않아요.
+-- ============================================================
+create extension if not exists pg_net with schema extensions;
+
+-- 이 기기에서 알림을 켠 사람 (기기 1대 = 구독 1개, 지금 그 기기를 쓰는 사람 기준)
+create table if not exists public.qc_push_subs (
+  endpoint   text primary key,
+  space_id   uuid not null references public.qc_spaces(id) on delete cascade,
+  user_id    uuid not null,
+  kid_id     uuid references public.qc_kids(id) on delete cascade,   -- 아이 화면으로 쓰는 기기
+  is_parent  boolean not null default false,                         -- 부모 화면으로 쓰는 기기
+  p256dh     text not null,
+  auth       text not null,
+  updated_at timestamptz not null default now()
+);
+create index if not exists qc_push_subs_space_idx on public.qc_push_subs(space_id);
+alter table public.qc_push_subs enable row level security;   -- 정책 없음: 아래 함수로만 저장/삭제
+
+-- 알림 함수 주소 + 호출용 비밀값 (처음 실행할 때 자동으로 만들어짐, 클라이언트 접근 불가)
+create table if not exists public.qc_notify_config (
+  id     int primary key default 1 check (id = 1),
+  url    text not null,
+  secret text not null default encode(extensions.gen_random_bytes(24), 'hex')
+);
+alter table public.qc_notify_config enable row level security;
+insert into public.qc_notify_config(id, url)
+  values (1, 'https://ivfeomuxwzxyzmixiyyv.supabase.co/functions/v1/qc-notify')
+  on conflict (id) do nothing;
+
+create or replace function public.qc_push_save(
+  p_space_id uuid, p_endpoint text, p_p256dh text, p_auth text, p_kid_id uuid, p_parent boolean)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.qc_is_member(p_space_id) then raise exception '가족 공간에 먼저 들어와야 해요'; end if;
+  if p_parent and not public.qc_is_parent(p_space_id) then raise exception '부모 모드에서만 켤 수 있어요'; end if;
+  if p_kid_id is not null then
+    perform 1 from public.qc_kids where id = p_kid_id and space_id = p_space_id;
+    if not found then raise exception '아이를 찾을 수 없어요'; end if;
+  end if;
+  insert into public.qc_push_subs(endpoint, space_id, user_id, kid_id, is_parent, p256dh, auth, updated_at)
+    values (p_endpoint, p_space_id, auth.uid(), case when p_parent then null else p_kid_id end, coalesce(p_parent, false), p_p256dh, p_auth, now())
+  on conflict (endpoint) do update set
+    space_id = excluded.space_id, user_id = excluded.user_id, kid_id = excluded.kid_id,
+    is_parent = excluded.is_parent, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = now();
+end $$;
+
+create or replace function public.qc_push_delete(p_endpoint text) returns void
+language sql security definer set search_path = public as $$
+  delete from public.qc_push_subs where endpoint = p_endpoint and user_id = auth.uid();
+$$;
+
+revoke all on function public.qc_push_save(uuid, text, text, text, uuid, boolean) from public, anon;
+revoke all on function public.qc_push_delete(text) from public, anon;
+grant execute on function public.qc_push_save(uuid, text, text, text, uuid, boolean) to authenticated;
+grant execute on function public.qc_push_delete(text) to authenticated;
+
+-- 알림 함수 호출 (비동기: 트랜잭션이 끝난 뒤 보내짐). 실패해도 원래 작업은 그대로 진행
+create or replace function public.qc_notify(p_kind text, p_row jsonb, p_old_status text default null) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare c public.qc_notify_config;
+begin
+  select * into c from public.qc_notify_config where id = 1;
+  if c.url is null then return; end if;
+  perform net.http_post(
+    url := c.url,
+    body := jsonb_build_object('kind', p_kind, 'row', p_row, 'old_status', p_old_status),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-qc-secret', c.secret),
+    timeout_milliseconds := 5000
+  );
+exception when others then
+  raise warning 'qc_notify failed: %', sqlerrm;
+end $$;
+revoke all on function public.qc_notify(text, jsonb, text) from public, anon, authenticated;
+
+create or replace function public.qc_notify_trigger() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare old_status text;
+begin
+  if tg_op = 'UPDATE' then
+    old_status := to_jsonb(old) ->> 'status';
+    if old_status is not distinct from (to_jsonb(new) ->> 'status') then return new; end if;   -- 상태가 바뀔 때만
+  end if;
+  perform public.qc_notify(tg_argv[0], to_jsonb(new), old_status);
+  return new;
+end $$;
+
+drop trigger if exists qc_notify_missions on public.qc_missions;
+create trigger qc_notify_missions after insert on public.qc_missions
+  for each row when (new.kind in ('chore', 'surprise') and new.active) execute function public.qc_notify_trigger('mission');
+
+drop trigger if exists qc_notify_submissions on public.qc_submissions;
+create trigger qc_notify_submissions after insert or update of status on public.qc_submissions
+  for each row execute function public.qc_notify_trigger('submission');
+
+drop trigger if exists qc_notify_requests on public.qc_requests;
+create trigger qc_notify_requests after insert or update of status on public.qc_requests
+  for each row when (new.status <> 'canceled') execute function public.qc_notify_trigger('request');
+
+drop trigger if exists qc_notify_claims on public.qc_quest_claims;
+create trigger qc_notify_claims after insert on public.qc_quest_claims
+  for each row execute function public.qc_notify_trigger('claim');
+
+drop trigger if exists qc_notify_ledger on public.qc_ledger;
+create trigger qc_notify_ledger after insert on public.qc_ledger
+  for each row when (new.amount > 0 and new.ref_type in ('transfer', 'adjust')) execute function public.qc_notify_trigger('ledger');
+
+drop trigger if exists qc_notify_goals on public.qc_goals;
+create trigger qc_notify_goals after update of status on public.qc_goals
+  for each row when (new.status in ('full', 'done')) execute function public.qc_notify_trigger('goal');

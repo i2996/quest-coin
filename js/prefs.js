@@ -25,6 +25,11 @@ export const prefs = {
   /** 이미 본 돌발 미션 팝업 */
   seen: (kidId) => get('seen.' + kidId, []),
   markSeen: (kidId, id) => put('seen.' + kidId, [...get('seen.' + kidId, []).filter((x) => x !== id).slice(-50), id]),
+  /** 이 기기 알림 켬 여부 / 알림 안내 배너 닫음 */
+  pushOn: () => get('pushOn', false),
+  setPushOn: (v) => put('pushOn', !!v),
+  pushBannerHidden: (who) => get('pushBanner.' + who, false),
+  hidePushBanner: (who) => put('pushBanner.' + who, true),
   /** 코인이 늘었을 때 축하 애니메이션용 */
   lastBalance: (kidId) => get('bal.' + kidId),
   setLastBalance: (kidId, n) => put('bal.' + kidId, n),

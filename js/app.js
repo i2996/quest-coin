@@ -8,6 +8,7 @@ import { countdown } from './logic/dates.js';
 import * as gate from './ui/gate.js';
 import * as kid from './ui/kid.js';
 import * as parent from './ui/parent.js';
+import * as notify from './ui/notify.js';
 import { closeSheet, toast } from './ui/sheet.js';
 import { coinRain } from './ui/fx.js';
 
@@ -15,7 +16,7 @@ const root = document.getElementById('root');
 const popupRoot = document.getElementById('popup-root');
 
 const actions = {
-  ...gate.actions, ...kid.actions, ...parent.actions,
+  ...gate.actions, ...kid.actions, ...parent.actions, ...notify.actions,
   'sheet-close': () => closeSheet(),
   'switch-who': () => {
     prefs.setWho(null);
@@ -50,6 +51,7 @@ function render() {
   popupRoot.innerHTML = w && w !== 'parent' ? kid.surprisePopup() : '';
   document.body.classList.toggle('popup-on', !!popupRoot.innerHTML);
   celebrateGain(w);
+  notify.syncPush();
   window.__appReady = true;
 }
 

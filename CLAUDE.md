@@ -22,7 +22,9 @@
 - 화면을 바꿨다면 `python3 -m http.server 8000` 으로 띄워 Playwright 로 '먼저 체험해보기'(체험 모드, 부모 PIN 0000)를 열어
   바꾼 화면을 직접 눌러보고 콘솔 오류가 없는지 확인한다. (체험 모드는 Supabase 없이 동작)
 - SQL 을 바꿨다면 가능하면 로컬 Postgres 에 `auth.uid()` 등을 흉내 낸 뒤 두 번 실행해 오류가 없는지 확인한다.
-- `js/config.js` 의 Supabase 주소/키는 바꾸지 않는다.
+- `js/config.js` 의 Supabase 주소/키, VAPID 공개 키는 바꾸지 않는다.
+- 알림 문구/대상을 바꿨다면 `supabase/functions/qc-notify/logic.js` 와 `tests/notify.test.mjs` 를 같이 고친다.
+  `supabase/functions/` 가 바뀌어 머지되면 GitHub Actions 가 알림 함수를 자동 배포한다(실패하면 SUPABASE_ACCESS_TOKEN 확인).
 
 ## 프로젝트 개요
 - 빌드 없는 정적 PWA + Supabase. 구조는 README.md 참고.

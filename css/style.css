@@ -457,3 +457,6 @@ legend { font-size: 15px; padding: 0; margin-bottom: 6px; }
 .goal-parts { display: flex; flex-wrap: wrap; gap: 6px; }
 .goal-part { border-radius: 999px; padding: 3px 10px; font-size: 13px; background: color-mix(in srgb, var(--kc) 22%, white); }
 .goal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+
+.warn-box { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--hot-soft); color: var(--hot-d); font-size: 14px; line-height: 1.5; }
+.warn-box b { font-family: ui-monospace, monospace; font-weight: 700; }

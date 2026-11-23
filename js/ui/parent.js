@@ -184,7 +184,7 @@ function familyTab() {
   return `
   <section class="p-sec"><h2>아이들 <button class="btn sm primary" data-act="new-kid">+ 추가</button></h2>
     ${kids.length ? `<ul class="p-list">${kids.map((k) => `<li class="p-row">${avatar(k)}
-        <div class="grow tap" data-act="edit-kid" data-id="${k.id}"><b>${esc(k.name)}</b><small>${k.cash_limit == null ? '용돈 한도 없음' : `이번 달 용돈 ${won(cashUsedThisMonth(state.data.requests, k.id))} / ${won(k.cash_limit)}`} · 눌러서 수정</small></div>
+        <div class="grow tap" data-act="edit-kid" data-id="${k.id}"><b>${esc(k.name)}</b><small>${hasLimitColumn() === false ? '⚠️ 용돈 한도: DB 업데이트 필요' : k.cash_limit == null ? '용돈 한도 없음' : `이번 달 용돈 ${won(cashUsedThisMonth(state.data.requests, k.id))} / ${won(k.cash_limit)}`} · 눌러서 수정</small></div>
         ${coin(balanceOf(state.data.ledger, k.id), 'sm')}
         <button class="btn sm" data-act="adjust" data-id="${k.id}">± 코인</button></li>`).join('')}</ul>` : empty('🧒', '아이를 추가해주세요')}</section>
   <section class="p-sec"><h2>설정</h2>
@@ -335,6 +335,14 @@ function itemSheet(i = null) {
   });
 }
 
+/** DB 에 용돈 한도 칸이 있나: true / false / null(아이가 없어서 아직 모름) */
+function hasLimitColumn() {
+  if (mode === 'demo') return true;
+  if (!state.data.kids.length) return null;
+  return state.data.kids.some((x) => 'cash_limit' in x);
+}
+const isMissingColumn = (e) => /cash_limit|schema cache|DB 준비/i.test(e?.message || '');
+
 function kidSheet(k = null) {
   const used = state.data.kids.length;
   const v = k || { name: '', emoji: KID_EMOJIS[used % KID_EMOJIS.length], color: KID_COLORS[used % KID_COLORS.length], cash_limit: 10000 };
@@ -347,6 +355,7 @@ function kidSheet(k = null) {
       <fieldset><legend>색</legend><div class="color-pick">${KID_COLORS.map((c) => `<label><input type="radio" name="color" value="${c}" ${c === v.color ? 'checked' : ''}><span style="background:${c}"></span></label>`).join('')}</div></fieldset>
       <label>한 달 용돈 한도 (원) <small>(비우면 제한 없음)</small><input name="cash_limit" type="number" inputmode="numeric" min="0" step="100" value="${v.cash_limit ?? ''}" placeholder="제한 없음"></label>
       <p class="hint">한 달에 코인을 용돈(현금)으로 바꿀 수 있는 최대 금액이에요. 넘는 코인은 기프티콘·같이 모으기에 쓰거나 다음 달로 넘어가요.</p>
+      ${hasLimitColumn() === false ? '<p class="warn-box">⚠️ DB 업데이트가 필요해요. Supabase SQL Editor 에서 <b>supabase/schema.sql</b> 을 다시 실행해야 용돈 한도가 저장돼요.</p>' : ''}
       <div class="form-actions">${delBtn('del-kid', k?.id)}<button class="btn primary big">저장</button></div>
     </form>`,
   });
@@ -589,14 +598,34 @@ export const forms = {
   kid: async (f) => {
     const d = formData(f);
     const row = { name: d.name.trim(), emoji: d.emoji, color: d.color };
-    // 용돈 한도: DB 에 칸이 생긴 뒤(SQL 실행 후)에만 저장
-    if (mode === 'demo' || state.data.kids.some((x) => 'cash_limit' in x)) row.cash_limit = d.cash_limit === '' ? null : Math.max(0, num(d.cash_limit));
+    const limit = d.cash_limit === '' || d.cash_limit == null ? null : Math.max(0, num(d.cash_limit));
     if (d.id) row.id = d.id;
     else {
       row.space_id = spaceId();
       row.sort = state.data.kids.length;
     }
-    if (await run(() => api.save('kids', row), '저장했어요')) closeSheet();
+    // 용돈 한도 칸이 DB 에 없으면(SQL 미실행) 나머지만 저장하고, 한도가 저장 안 됐다고 분명히 알림
+    let limitDropped = false;
+    const ok = await run(async () => {
+      if (hasLimitColumn() !== false) {
+        try {
+          return await api.save('kids', { ...row, cash_limit: limit });
+        } catch (e) {
+          if (!isMissingColumn(e)) throw e;
+        }
+      }
+      limitDropped = true;
+      return api.save('kids', row);
+    });
+    if (!ok) return;
+    closeSheet();
+    if (limitDropped) {
+      await confirmDialog({
+        title: '용돈 한도는 저장되지 않았어요',
+        message: '이름·캐릭터는 저장됐지만, DB 에 용돈 한도 칸이 아직 없어요. Supabase SQL Editor 에서 supabase/schema.sql 을 다시 실행한 뒤 한도를 다시 입력해주세요.',
+        ok: '알겠어요', cancel: '',
+      });
+    } else toast('저장했어요', 'ok');
   },
   adjust: async (f) => {
     const d = formData(f);

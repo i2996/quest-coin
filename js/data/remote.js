@@ -105,3 +105,10 @@ export const transfer = (fromId, toId, coins, memo) => rpc('qc_transfer', { p_fr
 export const goalCreate = (kidId, title, emoji, target) => rpc('qc_goal_create', { p_kid_id: kidId, p_title: title, p_emoji: emoji, p_target: target });
 export const goalPut = (goalId, kidId, coins) => rpc('qc_goal_put', { p_goal_id: goalId, p_kid_id: kidId, p_coins: coins });
 export const goalDecide = (goalId, status) => rpc('qc_goal_decide', { p_goal_id: goalId, p_status: status });
+
+// 폰 알림: 이 기기 구독 저장 (지금 쓰는 사람 = 아이 id 또는 부모)
+export function savePush(spaceId, sub, kidId, isParent) {
+  const j = sub.toJSON();
+  return rpc('qc_push_save', { p_space_id: spaceId, p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_kid_id: kidId, p_parent: !!isParent });
+}
+export const deletePush = (endpoint) => rpc('qc_push_delete', { p_endpoint: endpoint });

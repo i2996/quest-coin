@@ -25,7 +25,7 @@
   <script>
     // 앱이 8초 안에 시작되지 않으면 어떤 파일이 없는지 알려주는 점검 화면
     (function () {
-      var REQUIRED = ['js/app.js','js/config.js','js/core.js','js/prefs.js','js/state.js','js/data/api.js','js/data/remote.js','js/data/local.js','js/logic/dates.js','js/logic/coins.js','js/logic/missions.js','js/logic/quests.js','js/ui/components.js','js/ui/sheet.js','js/ui/fx.js','js/ui/gate.js','js/ui/kid.js','js/ui/parent.js'];
+      var REQUIRED = ['js/app.js','js/config.js','js/core.js','js/prefs.js','js/state.js','js/data/api.js','js/data/remote.js','js/data/push.js','js/ui/notify.js','js/data/local.js','js/logic/dates.js','js/logic/coins.js','js/logic/missions.js','js/logic/quests.js','js/ui/components.js','js/ui/sheet.js','js/ui/fx.js','js/ui/gate.js','js/ui/kid.js','js/ui/parent.js'];
       var errors = [];
       window.addEventListener('error', function (e) { errors.push(e.message || (e.target && e.target.src) || '알 수 없는 오류'); }, true);
       window.addEventListener('unhandledrejection', function (e) { errors.push(String((e.reason && e.reason.message) || e.reason)); });

@@ -10,6 +10,7 @@ import { dateLabel, shortDate, timeAgo, countdown } from '../logic/dates.js';
 import { esc, coin, avatar, kidById, empty, progressBar, CATEGORIES, missionById, sortedKids, ITEM_EMOJIS, emojiPicker } from './components.js';
 import { openSheet, closeSheet, confirmDialog, toast } from './sheet.js';
 import { coinRain, confetti } from './fx.js';
+import { bellButton, pushBanner } from './notify.js';
 
 const TABS = [
   { id: 'missions', label: '미션', ic: '🗡️' },
@@ -36,7 +37,7 @@ export function renderKid() {
   return `
   <header class="kid-head" style="--kc:${esc(k.color)}">
     <button class="who-btn" data-act="switch-who" aria-label="사용자 바꾸기">${avatar(k, 'lg')}<span><small>모험가</small><b>${esc(k.name)}</b></span></button>
-    <div class="wallet-pill" data-act="kid-tab" data-tab="wallet"><i class="coin-ic big"></i><b data-bal>${fmt(bal())}</b></div>
+    <div class="head-right">${bellButton()}<div class="wallet-pill" data-act="kid-tab" data-tab="wallet"><i class="coin-ic big"></i><b data-bal>${fmt(bal())}</b></div></div>
   </header>
   <main class="page kid-page" data-tab="${tab}">${body}</main>
   <nav class="tabbar">${TABS.map((t) => `<button class="${tab === t.id ? 'on' : ''}" data-act="kid-tab" data-tab="${t.id}">
@@ -52,7 +53,7 @@ function missionsTab(k) {
   const done = list.filter((x) => x.status === 'approved' || x.status === 'pending').length;
   const pct = list.length ? Math.round((done / list.length) * 100) : 0;
 
-  return `
+  return `${pushBanner()}
   ${surprises.length ? `<section class="surprise-zone">
       <h2 class="zone-title"><span class="siren">🚨</span> 돌발 미션</h2>
       ${surprises.map(surpriseCard).join('')}</section>` : ''}

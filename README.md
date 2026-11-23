@@ -38,6 +38,24 @@ Supabase 없이 먼저 써보려면 첫 화면의 **먼저 체험해보기** (�
 
 로컬 테스트: `python3 -m http.server 8000` 후 `http://localhost:8000` · 로직 테스트: `node --test tests/*.test.mjs`
 
+## 🔔 폰 알림
+
+| 누가 받나 | 언제 |
+|---|---|
+| 아이 | 새 심부름 · 🚨 돌발 미션(누를 때까지 남아 있음) · 승인돼서 코인 들어옴 · 다시 해달래요 · 기프티콘 도착/용돈 받음/거절(환불) · 코인 받음(형제·보너스) · 같이 모으기 사주심 |
+| 부모 | 아이가 '다 했어요' · 기프티콘/용돈/대신 사주세요 요청 · 퀘스트 클리어 · 같이 모으기 다 모음 |
+
+- 기기마다 켜요: 아이 화면 위쪽 🔕 버튼 / 안내 배너의 `켜기`, 부모 화면 `가족 → 설정 → 이 기기 알림`
+- 알림은 **그 기기를 지금 쓰는 사람** 기준이에요. (부모 폰을 아이 화면으로 바꾸면 그 아이 알림이 와요)
+- 아이폰: 사파리 → 공유 → **홈 화면에 추가** 한 앱에서만 알림을 받을 수 있어요 (iOS 16.4 이상). 안드로이드는 크롬에서 바로.
+- 동작 방식: DB 트리거(`qc_notify`) → 알림 함수 `supabase/functions/qc-notify` → 웹 푸시. VAPID 키는 '우리 가족' 알림과 같은 것을 써요.
+
+### 알림 설정 (처음 한 번)
+1. `supabase/schema.sql` 다시 실행 (알림 테이블·트리거 추가)
+2. 이 저장소 **Settings → Secrets and variables → Actions → New repository secret**
+   - 이름 `SUPABASE_ACCESS_TOKEN`, 값은 '우리 가족' 저장소에 넣은 것과 같은 토큰 (모르면 supabase.com → Account → Access Tokens 에서 새로 만들기)
+3. **Actions → 알림 함수 배포 → Run workflow** (이후엔 함수가 바뀌어 머지되면 자동 배포)
+
 ## 파일 구조
 
 ```
@@ -51,8 +69,11 @@ js/data/api.js                              백엔드 선택 (remote | demo)
 js/data/remote.js                           Supabase (가족 공유)
 js/data/local.js                            체험 모드 (같은 규칙, 이 기기에만 저장)
 js/logic/                                   순수 계산: dates, coins, missions(오늘 할 일·돌발), quests(진행도)
-js/ui/                                      gate(시작·사용자 선택) kid(아이) parent(부모) sheet fx components
-supabase/schema.sql                         테이블 + RLS + 코인 처리 함수(qc_*) + 실시간
+js/data/push.js                             웹 푸시 구독 (브라우저)
+js/ui/                                      notify(알림 켜기) gate(시작·사용자 선택) kid(아이) parent(부모) sheet fx components
+supabase/schema.sql                         테이블 + RLS + 코인 처리 함수(qc_*) + 실시간 + 알림 트리거
+supabase/functions/qc-notify/               알림 함수 (index.ts: 보내기, logic.js: 누구에게·무슨 문구)
+.github/workflows/deploy-functions.yml      알림 함수 자동 배포 (SUPABASE_ACCESS_TOKEN 필요)
 tests/logic.test.mjs                        로직 테스트
 ```
 

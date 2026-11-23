@@ -3,11 +3,11 @@ import { state, set } from '../state.js';
 import { prefs } from '../prefs.js';
 import { api } from '../data/api.js';
 import { run, today, who, formData } from '../core.js';
-import { balanceOf, fmt, won } from '../logic/coins.js';
+import { balanceOf, fmt, won, cashLeft, cashUsedThisMonth, goalParts, goalSum } from '../logic/coins.js';
 import { kidToday, kidLaterThisWeek, kidSurprises, liveSurprises, repeatLabel } from '../logic/missions.js';
 import { questProgress, questsFor, questGoalLabel } from '../logic/quests.js';
 import { dateLabel, shortDate, timeAgo, countdown } from '../logic/dates.js';
-import { esc, coin, avatar, kidById, empty, progressBar, CATEGORIES, missionById } from './components.js';
+import { esc, coin, avatar, kidById, empty, progressBar, CATEGORIES, missionById, sortedKids, ITEM_EMOJIS, emojiPicker } from './components.js';
 import { openSheet, closeSheet, confirmDialog, toast } from './sheet.js';
 import { coinRain, confetti } from './fx.js';
 
@@ -156,10 +156,11 @@ function shopTab(k) {
   const seg = [
     { id: 'gift', label: '🎁 기프티콘' },
     { id: 'cash', label: '💵 용돈' },
-    { id: 'proxy', label: '🙏 부모님께 부탁' },
+    { id: 'goal', label: '🫙 모으기' },
+    { id: 'proxy', label: '🙏 부탁' },
   ];
   return `<div class="seg">${seg.map((s) => `<button class="${sub === s.id ? 'on' : ''}" data-act="shop-tab" data-tab="${s.id}">${s.label}</button>`).join('')}</div>
-    ${sub === 'cash' ? cashPane() : sub === 'proxy' ? proxyPane() : giftPane()}`;
+    ${sub === 'cash' ? cashPane() : sub === 'proxy' ? proxyPane() : sub === 'goal' ? goalPane() : giftPane()}`;
 }
 
 function giftPane() {
@@ -184,10 +185,30 @@ function giftPane() {
   }).join('');
 }
 
+function limitBox(k) {
+  if (k.cash_limit == null) return '';
+  const used = cashUsedThisMonth(state.data.requests, k.id);
+  const left = cashLeft(k, state.data.requests);
+  return `<div class="limit-box">
+    <div class="limit-row"><span>이번 달 남은 용돈 한도</span><b>${won(left)}</b></div>
+    ${progressBar(k.cash_limit ? (used / k.cash_limit) * 100 : 100)}
+    <small>한 달에 ${won(k.cash_limit)}까지 바꿀 수 있어요 · 지금까지 ${won(used)}</small></div>`;
+}
+
 function cashPane() {
   const rate = state.data.space.coin_rate;
-  const b = bal();
+  const k = kid();
+  const left = cashLeft(k, state.data.requests);
+  const b = Math.min(bal(), Number.isFinite(left) ? Math.floor(left / rate) : Infinity);
+  if (Number.isFinite(left) && left < rate) {
+    return `<div class="panel cash">${limitBox(k)}
+      <p class="limit-done">이번 달 용돈 한도를 다 썼어요!</p>
+      <p class="lead">남은 코인은 🎁 기프티콘이나 🫙 같이 모으기에 쓰거나,<br>다음 달까지 모아둘 수 있어요.</p>
+      <div class="quick center-row"><button class="chip" data-act="shop-tab" data-tab="gift">🎁 기프티콘 보기</button>
+        <button class="chip" data-act="shop-tab" data-tab="goal">🫙 같이 모으기</button></div></div>`;
+  }
   return `<div class="panel cash">
+    ${limitBox(k)}
     <p class="rate">1코인 = <b>${won(rate)}</b></p>
     <form data-form="cash" class="form">
       <label>바꿀 코인<div class="stepper"><button type="button" data-act="step" data-d="-10">−</button>
@@ -199,6 +220,47 @@ function cashPane() {
       <button class="btn primary big" ${b <= 0 ? 'disabled' : ''}>용돈으로 바꿔주세요</button>
       <p class="hint">부모님이 용돈을 주시면 '받았어요'로 바뀌어요</p>
     </form></div>`;
+}
+
+/* ---------------- 같이 모으기 ---------------- */
+const GOAL_STATUS = { open: '모으는 중', full: '다 모았어요! 부모님 기다리는 중', done: '사주셨어요 🎉', canceled: '취소됨' };
+
+export function goalCard(g, { parent = false } = {}) {
+  const d = state.data;
+  const sum = goalSum(d.ledger, g.id);
+  const parts = Object.entries(goalParts(d.ledger, g.id)).filter(([, v]) => v > 0);
+  const pct = Math.min(100, (sum / g.target) * 100);
+  const maker = kidById(g.kid_id);
+  const me = who();
+  let foot = '';
+  if (parent) {
+    if (g.status === 'full') foot += `<button class="btn sm primary" data-act="goal-done" data-id="${g.id}">사줬어요 ✓</button>`;
+    if (g.status === 'open' || g.status === 'full') foot += `<button class="link danger" data-act="goal-cancel" data-id="${g.id}">취소(환불)</button>`;
+  } else if (g.status === 'open') {
+    foot += `<button class="btn sm go" data-act="goal-put" data-id="${g.id}">코인 넣기</button>`;
+    if (g.kid_id === me) foot += `<button class="link danger" data-act="goal-cancel" data-id="${g.id}">취소</button>`;
+  }
+  return `<article class="goal ${g.status}">
+    <div class="goal-head"><span class="g-emoji">${esc(g.emoji)}</span>
+      <div class="grow"><b>${esc(g.title)}</b><small>${GOAL_STATUS[g.status]}${maker ? ` · ${esc(maker.name)}이(가) 만듦` : ''}</small></div>
+      <span class="goal-pct">${Math.floor(pct)}%</span></div>
+    <div class="q-prog">${progressBar(pct, g.status !== 'open' ? 'full' : '')}<span>${fmt(sum)} / ${fmt(g.target)}</span></div>
+    <div class="goal-parts">${parts.length ? parts.map(([id, v]) => {
+      const k = kidById(id);
+      return `<span class="goal-part" style="--kc:${esc(k?.color || '#ccc')}">${esc(k?.emoji || '❔')} ${esc(k?.name || '?')} ${fmt(v)}</span>`;
+    }).join('') : '<small class="muted">아직 아무도 안 넣었어요</small>'}</div>
+    ${foot ? `<div class="goal-foot">${foot}</div>` : ''}</article>`;
+}
+
+function goalPane() {
+  const gs = [...(state.data.goals || [])].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const live = gs.filter((g) => g.status === 'open' || g.status === 'full');
+  const past = gs.filter((g) => g.status === 'done' || g.status === 'canceled').slice(0, 10);
+  return `<div class="panel">
+      <p class="lead">치킨처럼 혼자 사기 어려운 건<br><b>형제와 코인을 같이 모아요.</b> 다 모이면 부모님께 사달라고 알려줘요.</p>
+      <button class="btn primary big full-w" data-act="goal-new">+ 새 목표 만들기</button></div>
+    ${live.length ? `<div class="goal-list">${live.map((g) => goalCard(g)).join('')}</div>` : empty('🫙', '모으는 중인 목표가 없어요')}
+    ${past.length ? `<details class="later"><summary>지난 목표 ${past.length}개</summary><div class="goal-list">${past.map((g) => goalCard(g)).join('')}</div></details>` : ''}`;
 }
 
 function proxyPane() {
@@ -227,8 +289,10 @@ function walletTab(k) {
   const reqs = state.data.requests.filter((r) => r.kid_id === k.id).sort((a, b) => b.created_at.localeCompare(a.created_at));
   const ledger = state.data.ledger.filter((l) => l.kid_id === k.id).sort((a, b) => b.created_at.localeCompare(a.created_at));
   const earned = ledger.filter((l) => l.amount > 0 && l.ref_type !== 'refund').reduce((s, l) => s + l.amount, 0);
+  const sibs = sortedKids().filter((x) => x.id !== k.id);
   return `<section class="wallet-card"><small>내 코인</small><div class="big-bal"><i class="coin-ic huge"></i>${fmt(bal())}</div>
-      <small>지금까지 모은 코인 ${fmt(earned)}</small></section>
+      <small>지금까지 모은 코인 ${fmt(earned)}</small>
+      ${sibs.length ? `<button class="btn send-btn" data-act="send-open" ${bal() > 0 ? '' : 'disabled'}>💌 코인 보내기</button>` : ''}</section>
     <div class="seg"><button class="${sub === 'coupons' ? 'on' : ''}" data-act="wallet-tab" data-tab="coupons">🎟️ 쿠폰함</button>
       <button class="${sub === 'history' ? 'on' : ''}" data-act="wallet-tab" data-tab="history">📜 코인 내역</button></div>
     ${sub === 'history' ? historyList(ledger) : couponList(reqs)}`;
@@ -320,6 +384,56 @@ export const actions = {
     const ok = await confirmDialog({ title: '요청을 취소할까요?', message: '코인은 바로 돌려받아요.', ok: '취소하기', cancel: '그대로 두기' });
     if (ok) run(() => api.decideRequest(el.dataset.id, 'canceled'), '코인을 돌려받았어요');
   },
+  'send-open': () => {
+    const k = kid();
+    const b = bal();
+    const sibs = sortedKids().filter((x) => x.id !== k.id);
+    openSheet({
+      title: '💌 코인 보내기',
+      body: `<form data-form="send" class="form">
+        <fieldset><legend>누구에게?</legend><div class="kid-pick">${sibs
+          .map((s, i) => `<label><input type="radio" name="to" value="${s.id}" ${i === 0 ? 'checked' : ''}><span>${esc(s.emoji)} ${esc(s.name)}</span></label>`)
+          .join('')}</div></fieldset>
+        <label>보낼 코인 <small>(내 코인 ${fmt(b)})</small><input name="coins" type="number" inputmode="numeric" min="1" max="${b}" required></label>
+        <div class="quick">${[10, 50, 100].filter((n) => n <= b).map((n) => `<button type="button" class="chip" data-act="set-coins" data-v="${n}">${n}</button>`).join('')}</div>
+        <label>한마디 <small>(선택)</small><input name="memo" type="text" maxlength="40" placeholder="예: 치킨 같이 먹자!"></label>
+        <button class="btn primary big">보내기</button>
+        <p class="hint">보내면 바로 들어가요. 부모님도 보낸 기록을 볼 수 있어요.</p></form>`,
+    });
+  },
+  'goal-new': () => {
+    openSheet({
+      title: '🫙 새 목표',
+      body: `<form data-form="goal-new" class="form">
+        <label>무엇을 모을까요?<input name="title" type="text" maxlength="30" placeholder="예: 치킨" required></label>
+        ${emojiPicker('emoji', ['🍗', '🍕', '🍔', '🍦', '🎮', '🧸', '🎬', '🎁', ...ITEM_EMOJIS.filter((e) => !['🍗', '🍕', '🍔', '🍦', '🎮', '🧸', '🎁'].includes(e))], '🍗')}
+        <label>목표 코인<input name="target" type="number" inputmode="numeric" min="1" required></label>
+        <p class="hint">다 모이면 부모님께 '사주세요' 알림이 가요. 취소하면 넣은 코인은 모두 돌려받아요.</p>
+        <button class="btn primary big">만들기</button></form>`,
+    });
+  },
+  'goal-put': (el) => {
+    const g = (state.data.goals || []).find((x) => x.id === el.dataset.id);
+    if (!g) return;
+    const left = g.target - goalSum(state.data.ledger, g.id);
+    const b = bal();
+    const max = Math.min(left, b);
+    if (max <= 0) return toast('코인이 없어요', 'err');
+    openSheet({
+      title: `${g.emoji} ${g.title}에 넣기`,
+      body: `<form data-form="goal-put" class="form"><input type="hidden" name="id" value="${g.id}">
+        <p class="center">남은 코인 <b>${fmt(left)}</b> · 내 코인 <b>${fmt(b)}</b></p>
+        <label>넣을 코인<input name="coins" type="number" inputmode="numeric" min="1" max="${max}" required></label>
+        <div class="quick">${[10, 50, 100].filter((n) => n < max).map((n) => `<button type="button" class="chip" data-act="set-coins" data-v="${n}">${n}</button>`).join('')}
+          <button type="button" class="chip" data-act="set-coins" data-v="${max}">${max === left ? '남은 만큼' : '전부'} (${fmt(max)})</button></div>
+        <button class="btn primary big">넣기</button></form>`,
+    });
+  },
+  'goal-cancel': async (el) => {
+    const g = (state.data.goals || []).find((x) => x.id === el.dataset.id);
+    const ok = await confirmDialog({ title: `'${g?.title}' 목표를 취소할까요?`, message: '넣은 코인은 각자에게 돌려줘요.', ok: '취소하기', cancel: '그대로 두기', danger: true });
+    if (ok) run(() => api.goalDecide(el.dataset.id, 'canceled'), '취소하고 코인을 돌려줬어요');
+  },
   step: (el) => {
     const inp = el.closest('form').querySelector('[name=coins]');
     inp.value = Math.max(1, Math.min(bal(), (Number(inp.value) || 0) + Number(el.dataset.d)));
@@ -362,6 +476,38 @@ export const forms = {
     if (r) {
       set({ kidTab: 'wallet', walletTab: 'coupons' });
       toast('부모님께 용돈 요청을 보냈어요 💵', 'ok');
+    }
+  },
+  send: async (f) => {
+    const d = formData(f);
+    const coins = Math.floor(Number(d.coins));
+    const to = kidById(d.to);
+    if (!to) return toast('받을 사람을 골라주세요', 'err');
+    if (!(coins > 0)) return toast('코인을 입력해주세요', 'err');
+    const ok = await confirmDialog({ title: `${to.name}에게 ${fmt(coins)}코인을 보낼까요?`, message: '보내면 되돌릴 수 없어요.', ok: '보내기' });
+    if (!ok) return;
+    if (await run(() => api.transfer(who(), to.id, coins, d.memo))) {
+      closeSheet();
+      toast(`${to.name}에게 ${fmt(coins)}코인을 보냈어요 💌`, 'ok');
+    }
+  },
+  'goal-new': async (f) => {
+    const d = formData(f);
+    const target = Math.floor(Number(d.target));
+    if (!(target > 0)) return toast('목표 코인을 입력해주세요', 'err');
+    if (await run(() => api.goalCreate(who(), d.title.trim(), d.emoji, target), '목표를 만들었어요')) closeSheet();
+  },
+  'goal-put': async (f) => {
+    const d = formData(f);
+    const coins = Math.floor(Number(d.coins));
+    if (!(coins > 0)) return toast('코인을 입력해주세요', 'err');
+    const g = await run(() => api.goalPut(d.id, who(), coins));
+    if (g) {
+      closeSheet();
+      if (g.status === 'full') {
+        confetti();
+        toast('🎉 다 모았어요! 부모님께 알렸어요', 'ok');
+      } else toast(`${fmt(coins)}코인을 넣었어요`, 'ok');
     }
   },
   proxy: async (f) => {

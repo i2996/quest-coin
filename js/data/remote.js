@@ -45,7 +45,7 @@ export const joinSpace = (code, password) => rpc('qc_join_space', { p_code: code
 
 const TABLES = {
   kids: 'qc_kids', missions: 'qc_missions', submissions: 'qc_submissions', quests: 'qc_quests',
-  claims: 'qc_quest_claims', items: 'qc_shop_items', requests: 'qc_requests', ledger: 'qc_ledger',
+  claims: 'qc_quest_claims', items: 'qc_shop_items', requests: 'qc_requests', ledger: 'qc_ledger', goals: 'qc_goals',
 };
 
 export async function loadAll(spaceId) {
@@ -53,7 +53,8 @@ export async function loadAll(spaceId) {
   const [space, role, ...rows] = await Promise.all([
     db().from('qc_spaces').select('*').eq('id', spaceId).maybeSingle().then(unwrap),
     rpc('qc_my_role', { p_space_id: spaceId }),
-    ...Object.values(TABLES).map((t) => q(t).then(unwrap)),
+    // qc_goals 는 나중에 추가된 테이블: SQL 을 아직 안 돌렸어도 앱은 열리게
+    ...Object.values(TABLES).map((t) => q(t).then((r) => (t === 'qc_goals' && r.error ? [] : unwrap(r)))),
   ]);
   if (!space || !role) return null; // 접근 권한 없음
   const out = { space, role };
@@ -63,11 +64,15 @@ export async function loadAll(spaceId) {
 
 export function subscribe(spaceId, onChange) {
   const ch = db().channel(`qc-${spaceId}`);
-  [...Object.values(TABLES), 'qc_spaces'].forEach((table) =>
+  [...Object.values(TABLES).filter((t) => t !== 'qc_goals'), 'qc_spaces'].forEach((table) =>
     ch.on('postgres_changes', { event: '*', schema: 'public', table, filter: table === 'qc_spaces' ? `id=eq.${spaceId}` : `space_id=eq.${spaceId}` }, onChange)
   );
   ch.subscribe();
-  return () => db().removeChannel(ch);
+  // 같이 모으기는 따로 구독 (테이블이 아직 없어도 다른 실시간 갱신은 그대로 동작)
+  const ch2 = db().channel(`qc-goals-${spaceId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'qc_goals', filter: `space_id=eq.${spaceId}` }, onChange);
+  ch2.subscribe();
+  return () => { db().removeChannel(ch); db().removeChannel(ch2); };
 }
 
 export const parentLogin = (spaceId, pin) => rpc('qc_parent_login', { p_space_id: spaceId, p_pin: pin });
@@ -96,3 +101,7 @@ export const createRequest = ({ kidId, kind, title = null, coins = null, itemId 
   rpc('qc_create_request', { p_kid_id: kidId, p_kind: kind, p_title: title, p_coins: coins, p_item_id: itemId, p_memo: memo });
 export const decideRequest = (id, status, note = null) => rpc('qc_decide_request', { p_id: id, p_status: status, p_note: note });
 export const adjust = (kidId, amount, reason) => rpc('qc_adjust', { p_kid_id: kidId, p_amount: amount, p_reason: reason });
+export const transfer = (fromId, toId, coins, memo) => rpc('qc_transfer', { p_from: fromId, p_to: toId, p_coins: coins, p_memo: memo });
+export const goalCreate = (kidId, title, emoji, target) => rpc('qc_goal_create', { p_kid_id: kidId, p_title: title, p_emoji: emoji, p_target: target });
+export const goalPut = (goalId, kidId, coins) => rpc('qc_goal_put', { p_goal_id: goalId, p_kid_id: kidId, p_coins: coins });
+export const goalDecide = (goalId, status) => rpc('qc_goal_decide', { p_goal_id: goalId, p_status: status });

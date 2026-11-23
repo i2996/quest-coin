@@ -432,3 +432,28 @@ legend { font-size: 15px; padding: 0; margin-bottom: 6px; }
 @media (min-width: 700px) {
   .sheet { bottom: auto; top: 50%; transform: translateY(-50%); border-radius: 24px; animation: fade-in .15s; }
 }
+
+/* ---------- 용돈 한도 · 보내기 · 같이 모으기 ---------- */
+.limit-box { background: #f6f3ff; border-radius: 14px; padding: 10px 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.limit-box .bar { flex: none; }
+.limit-box small { color: var(--muted); }
+.limit-row { display: flex; justify-content: space-between; align-items: center; }
+.limit-row b { font-size: 18px; color: var(--pri); }
+.limit-done { text-align: center; font-family: var(--font-head); font-size: 20px; margin: 6px 0; }
+.center-row { justify-content: center; }
+.full-w { width: 100%; }
+.send-btn { margin-top: 10px; background: #fff8dc; color: #7a5600; box-shadow: 0 3px 0 #e5a800; }
+.goal-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.goal { background: var(--paper); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
+.goal.full { outline: 3px solid #ffc531; }
+.goal.done, .goal.canceled { opacity: .6; }
+.goal-head { display: flex; align-items: center; gap: 10px; }
+.goal-head .g-emoji { font-size: 34px; }
+.goal-head .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.goal-head small { color: var(--muted); }
+.goal-pct { font-family: var(--font-head); font-size: 20px; color: var(--pri); }
+.goal .q-prog { display: flex; align-items: center; gap: 8px; }
+.goal .q-prog span { font-size: 14px; white-space: nowrap; }
+.goal-parts { display: flex; flex-wrap: wrap; gap: 6px; }
+.goal-part { border-radius: 999px; padding: 3px 10px; font-size: 13px; background: color-mix(in srgb, var(--kc) 22%, white); }
+.goal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }

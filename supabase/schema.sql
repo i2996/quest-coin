@@ -154,6 +154,24 @@ create table if not exists public.qc_ledger (
   created_at timestamptz not null default now()
 );
 create index if not exists qc_ledger_kid_idx on public.qc_ledger(kid_id);
+create index if not exists qc_ledger_ref_idx on public.qc_ledger(ref_id);
+
+-- 아이별 한 달 용돈(현금) 교환 한도 (원). null = 제한 없음
+alter table public.qc_kids add column if not exists cash_limit int default 10000 check (cash_limit is null or cash_limit >= 0);
+
+-- 같이 모으기: 형제가 코인을 모아 치킨 같은 걸 사달라고 함
+create table if not exists public.qc_goals (
+  id         uuid primary key default gen_random_uuid(),
+  space_id   uuid not null references public.qc_spaces(id) on delete cascade,
+  kid_id     uuid references public.qc_kids(id) on delete set null,   -- 만든 아이
+  title      text not null,
+  emoji      text not null default '🍗',
+  target     int  not null check (target > 0),
+  status     text not null default 'open' check (status in ('open', 'full', 'done', 'canceled')),
+  created_at timestamptz not null default now(),
+  decided_at timestamptz
+);
+create index if not exists qc_goals_space_idx on public.qc_goals(space_id);
 
 -- ---------- 권한 확인 함수 ----------
 create or replace function public.qc_is_member(p_space uuid) returns boolean
@@ -171,6 +189,20 @@ language sql stable security definer set search_path = public as $$
   select coalesce(sum(amount), 0)::int from public.qc_ledger where kid_id = p_kid;
 $$;
 
+-- 이번 달(한국 시간) 용돈 교환으로 쓴 금액 (대기 중 포함, 거절·취소 제외)
+create or replace function public.qc_cash_used(p_kid uuid) returns int
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(won), 0)::int from public.qc_requests
+   where kid_id = p_kid and kind = 'cash' and status in ('pending', 'done')
+     and created_at >= (date_trunc('month', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul');
+$$;
+
+-- 같이 모으기 목표에 모인 코인
+create or replace function public.qc_goal_sum(p_goal uuid) returns int
+language sql stable security definer set search_path = public as $$
+  select coalesce(-sum(amount), 0)::int from public.qc_ledger where ref_id = p_goal and ref_type in ('goal', 'refund');
+$$;
+
 -- ---------- RLS ----------
 alter table public.qc_spaces        enable row level security;
 alter table public.qc_space_secrets enable row level security;  -- 정책 없음 = 클라이언트 접근 불가
@@ -183,6 +215,7 @@ alter table public.qc_quest_claims  enable row level security;
 alter table public.qc_shop_items    enable row level security;
 alter table public.qc_requests      enable row level security;
 alter table public.qc_ledger        enable row level security;
+alter table public.qc_goals         enable row level security;
 
 drop policy if exists qc_spaces_read on public.qc_spaces;
 create policy qc_spaces_read on public.qc_spaces for select to authenticated using (public.qc_is_member(id));
@@ -203,7 +236,7 @@ begin
     execute format('drop policy if exists %I on public.%I', t || '_write', t);
     execute format('create policy %I on public.%I for all to authenticated using (public.qc_is_parent(space_id)) with check (public.qc_is_parent(space_id))', t || '_write', t);
   end loop;
-  foreach t in array array['qc_submissions', 'qc_quest_claims', 'qc_requests', 'qc_ledger'] loop
+  foreach t in array array['qc_submissions', 'qc_quest_claims', 'qc_requests', 'qc_ledger', 'qc_goals'] loop
     execute format('drop policy if exists %I on public.%I', t || '_read', t);
     execute format('create policy %I on public.%I for select to authenticated using (public.qc_is_member(space_id))', t || '_read', t);
   end loop;
@@ -429,6 +462,10 @@ begin
     if it.stock is not null then update public.qc_shop_items set stock = stock - 1 where id = it.id; end if;
   elsif p_kind = 'cash' then
     v_title := '용돈 교환'; v_emoji := '💵'; v_won := v_coins * sp.coin_rate;
+    if k.cash_limit is not null and public.qc_cash_used(k.id) + coalesce(v_won, 0) > k.cash_limit then
+      raise exception '이번 달 용돈 한도를 넘어요 (남은 한도 %원). 남은 코인은 상점이나 같이 모으기에 쓰거나 다음 달까지 모아둘 수 있어요',
+        greatest(k.cash_limit - public.qc_cash_used(k.id), 0);
+    end if;
   elsif p_kind = 'proxy' then
     if v_title = '' then raise exception '무엇을 사고 싶은지 적어주세요'; end if;
     v_emoji := '🙏';
@@ -488,6 +525,89 @@ begin
   return l;
 end $$;
 
+-- ---------- 아이끼리 코인 보내기 ----------
+create or replace function public.qc_transfer(p_from uuid, p_to uuid, p_coins int, p_memo text)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare a public.qc_kids; b public.qc_kids; t uuid := gen_random_uuid(); m text := nullif(trim(coalesce(p_memo, '')), '');
+begin
+  select * into a from public.qc_kids where id = p_from for update;   -- 같은 아이의 동시 사용 막기
+  if not found or not public.qc_is_member(a.space_id) then raise exception '아이를 찾을 수 없어요'; end if;
+  select * into b from public.qc_kids where id = p_to and space_id = a.space_id;
+  if not found then raise exception '받을 사람을 찾을 수 없어요'; end if;
+  if a.id = b.id then raise exception '나에게는 보낼 수 없어요'; end if;
+  if coalesce(p_coins, 0) <= 0 then raise exception '코인을 1개 이상 입력해주세요'; end if;
+  if public.qc_balance(a.id) < p_coins then raise exception '코인이 모자라요'; end if;
+  insert into public.qc_ledger(space_id, kid_id, amount, reason, ref_type, ref_id) values
+    (a.space_id, a.id, -p_coins, '💌 ' || b.name || '에게 보냄' || coalesce(' · ' || m, ''), 'transfer', t),
+    (a.space_id, b.id,  p_coins, '💌 ' || a.name || '에게 받음' || coalesce(' · ' || m, ''), 'transfer', t);
+end $$;
+
+-- ---------- 같이 모으기 ----------
+create or replace function public.qc_goal_create(p_kid_id uuid, p_title text, p_emoji text, p_target int)
+returns public.qc_goals
+language plpgsql security definer set search_path = public as $$
+declare k public.qc_kids; g public.qc_goals;
+begin
+  select * into k from public.qc_kids where id = p_kid_id;
+  if not found or not public.qc_is_member(k.space_id) then raise exception '아이를 찾을 수 없어요'; end if;
+  if trim(coalesce(p_title, '')) = '' then raise exception '무엇을 모을지 적어주세요'; end if;
+  if coalesce(p_target, 0) <= 0 then raise exception '목표 코인을 입력해주세요'; end if;
+  insert into public.qc_goals(space_id, kid_id, title, emoji, target)
+    values (k.space_id, k.id, trim(p_title), coalesce(nullif(p_emoji, ''), '🍗'), p_target) returning * into g;
+  return g;
+end $$;
+
+create or replace function public.qc_goal_put(p_goal_id uuid, p_kid_id uuid, p_coins int)
+returns public.qc_goals
+language plpgsql security definer set search_path = public as $$
+declare g public.qc_goals; k public.qc_kids; left_ int;
+begin
+  select * into g from public.qc_goals where id = p_goal_id for update;
+  if not found or not public.qc_is_member(g.space_id) then raise exception '목표를 찾을 수 없어요'; end if;
+  if g.status <> 'open' then raise exception '이미 다 모았거나 끝난 목표예요'; end if;
+  select * into k from public.qc_kids where id = p_kid_id and space_id = g.space_id for update;
+  if not found then raise exception '아이를 찾을 수 없어요'; end if;
+  if coalesce(p_coins, 0) <= 0 then raise exception '코인을 1개 이상 입력해주세요'; end if;
+  left_ := g.target - public.qc_goal_sum(g.id);
+  if p_coins > left_ then raise exception '%코인만 더 넣으면 돼요', left_; end if;
+  if public.qc_balance(k.id) < p_coins then raise exception '코인이 모자라요'; end if;
+  insert into public.qc_ledger(space_id, kid_id, amount, reason, ref_type, ref_id)
+    values (g.space_id, k.id, -p_coins, '🫙 같이 모으기 · ' || g.title, 'goal', g.id);
+  if public.qc_goal_sum(g.id) >= g.target then
+    update public.qc_goals set status = 'full' where id = g.id returning * into g;
+  end if;
+  return g;
+end $$;
+
+-- 부모: 사줬어요(done). 취소(canceled): 부모는 언제든, 아이는 다 모이기 전만. 취소하면 넣은 코인 돌려줌
+create or replace function public.qc_goal_decide(p_goal_id uuid, p_status text)
+returns public.qc_goals
+language plpgsql security definer set search_path = public as $$
+declare g public.qc_goals; r record;
+begin
+  select * into g from public.qc_goals where id = p_goal_id for update;
+  if not found or not public.qc_is_member(g.space_id) then raise exception '목표를 찾을 수 없어요'; end if;
+  if p_status = 'done' then
+    if not public.qc_is_parent(g.space_id) then raise exception '부모만 할 수 있어요'; end if;
+    if g.status <> 'full' then raise exception '아직 다 모이지 않았어요'; end if;
+  elsif p_status = 'canceled' then
+    if g.status not in ('open', 'full') then raise exception '이미 끝난 목표예요'; end if;
+    if g.status = 'full' and not public.qc_is_parent(g.space_id) then raise exception '다 모인 목표는 부모님만 취소할 수 있어요'; end if;
+    for r in select kid_id, -sum(amount) as amt from public.qc_ledger
+              where ref_id = g.id and ref_type in ('goal', 'refund') group by kid_id loop
+      if r.amt > 0 then
+        insert into public.qc_ledger(space_id, kid_id, amount, reason, ref_type, ref_id)
+          values (g.space_id, r.kid_id, r.amt, '돌려받음 · ' || g.title, 'refund', g.id);
+      end if;
+    end loop;
+  else
+    raise exception '알 수 없는 상태';
+  end if;
+  update public.qc_goals set status = p_status, decided_at = now() where id = g.id returning * into g;
+  return g;
+end $$;
+
 -- ---------- 실행 권한 ----------
 revoke all on function public.qc_create_space(text, text, text, text) from public, anon;
 revoke all on function public.qc_join_space(text, text) from public, anon;
@@ -519,13 +639,21 @@ grant execute on function public.qc_claim_quest(uuid, uuid, text) to authenticat
 grant execute on function public.qc_create_request(uuid, text, text, int, uuid, text) to authenticated;
 grant execute on function public.qc_decide_request(uuid, text, text) to authenticated;
 grant execute on function public.qc_adjust(uuid, int, text) to authenticated;
+revoke all on function public.qc_transfer(uuid, uuid, int, text) from public, anon;
+revoke all on function public.qc_goal_create(uuid, text, text, int) from public, anon;
+revoke all on function public.qc_goal_put(uuid, uuid, int) from public, anon;
+revoke all on function public.qc_goal_decide(uuid, text) from public, anon;
+grant execute on function public.qc_transfer(uuid, uuid, int, text) to authenticated;
+grant execute on function public.qc_goal_create(uuid, text, text, int) to authenticated;
+grant execute on function public.qc_goal_put(uuid, uuid, int) to authenticated;
+grant execute on function public.qc_goal_decide(uuid, text) to authenticated;
 
 -- ---------- 실시간 ----------
 do $$
 declare t text;
 begin
   foreach t in array array['qc_spaces', 'qc_kids', 'qc_missions', 'qc_submissions', 'qc_quests',
-                           'qc_quest_claims', 'qc_shop_items', 'qc_requests', 'qc_ledger'] loop
+                           'qc_quest_claims', 'qc_shop_items', 'qc_requests', 'qc_ledger', 'qc_goals'] loop
     execute format('alter table public.%I replica identity full', t);
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);

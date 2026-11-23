@@ -45,7 +45,7 @@ create table if not exists public.qc_kids (
 create table if not exists public.qc_missions (
   id          uuid primary key default gen_random_uuid(),
   space_id    uuid not null references public.qc_spaces(id) on delete cascade,
-  kind        text not null default 'chore' check (kind in ('chore', 'surprise')),
+  kind        text not null default 'chore',             -- chore | surprise | quick(말로 시킨 심부름 기록)
   title       text not null,
   memo        text,
   emoji       text not null default '🧹',
@@ -61,6 +61,8 @@ create table if not exists public.qc_missions (
   created_at  timestamptz not null default now()
 );
 create index if not exists qc_missions_space_idx on public.qc_missions(space_id);
+alter table public.qc_missions drop constraint if exists qc_missions_kind_check;
+alter table public.qc_missions add constraint qc_missions_kind_check check (kind in ('chore', 'surprise', 'quick'));
 
 -- 아이가 '다 했어요' 를 누른 기록 (날짜별)
 create table if not exists public.qc_submissions (
@@ -360,6 +362,32 @@ begin
   return public.qc_decide_submission(r.id, true);
 end $$;
 
+-- 부모: 앱에 없던 심부름을 말로 시켰을 때 → 바로 완료 기록 + 적립 (퀘스트 '심부름 n개' 에도 +1)
+create or replace function public.qc_quick_chore(p_space_id uuid, p_kid_ids uuid[], p_title text, p_emoji text, p_reward int, p_date date)
+returns int
+language plpgsql security definer set search_path = public as $$
+declare m public.qc_missions; k uuid; n int := 0;
+begin
+  if not public.qc_is_parent(p_space_id) then raise exception '부모만 할 수 있어요'; end if;
+  if trim(coalesce(p_title, '')) = '' then raise exception '무슨 심부름인지 적어주세요'; end if;
+  if cardinality(coalesce(p_kid_ids, '{}')) = 0 then raise exception '누가 했는지 골라주세요'; end if;
+  insert into public.qc_missions(space_id, kind, title, emoji, reward, kid_ids, start_date, active)
+    values (p_space_id, 'quick', trim(p_title), coalesce(nullif(p_emoji, ''), '✍️'), greatest(coalesce(p_reward, 0), 0), p_kid_ids, p_date, true)
+    returning * into m;
+  foreach k in array p_kid_ids loop
+    perform 1 from public.qc_kids where id = k and space_id = p_space_id;
+    if not found then raise exception '아이를 찾을 수 없어요'; end if;
+    insert into public.qc_submissions(space_id, mission_id, kid_id, occurrence_date, status, reward, decided_at)
+      values (p_space_id, m.id, k, p_date, 'approved', m.reward, now());
+    if m.reward > 0 then
+      insert into public.qc_ledger(space_id, kid_id, amount, reason, ref_type, ref_id)
+        values (p_space_id, k, m.reward, m.title, 'submission', m.id);
+    end if;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
 -- ---------- 퀘스트 보상 ----------
 create or replace function public.qc_claim_quest(p_quest_id uuid, p_kid_id uuid, p_period_key text)
 returns public.qc_quest_claims
@@ -471,6 +499,7 @@ revoke all on function public.qc_submit(uuid, uuid, date) from public, anon;
 revoke all on function public.qc_unsubmit(uuid) from public, anon;
 revoke all on function public.qc_decide_submission(uuid, boolean) from public, anon;
 revoke all on function public.qc_complete_for(uuid, uuid, date) from public, anon;
+revoke all on function public.qc_quick_chore(uuid, uuid[], text, text, int, date) from public, anon;
 revoke all on function public.qc_claim_quest(uuid, uuid, text) from public, anon;
 revoke all on function public.qc_create_request(uuid, text, text, int, uuid, text) from public, anon;
 revoke all on function public.qc_decide_request(uuid, text, text) from public, anon;
@@ -485,6 +514,7 @@ grant execute on function public.qc_submit(uuid, uuid, date) to authenticated;
 grant execute on function public.qc_unsubmit(uuid) to authenticated;
 grant execute on function public.qc_decide_submission(uuid, boolean) to authenticated;
 grant execute on function public.qc_complete_for(uuid, uuid, date) to authenticated;
+grant execute on function public.qc_quick_chore(uuid, uuid[], text, text, int, date) to authenticated;
 grant execute on function public.qc_claim_quest(uuid, uuid, text) to authenticated;
 grant execute on function public.qc_create_request(uuid, text, text, int, uuid, text) to authenticated;
 grant execute on function public.qc_decide_request(uuid, text, text) to authenticated;

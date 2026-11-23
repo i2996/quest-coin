@@ -85,3 +85,16 @@ test('퀘스트: 심부름 n개 + 보상 받음 표시', () => {
 test('잔액', () => {
   assert.equal(balanceOf([{ kid_id: K, amount: 50 }, { kid_id: K, amount: -20 }, { kid_id: 'o', amount: 99 }], K), 30);
 });
+
+test('말로 시킨 심부름: 오늘 목록에 완료로, 퀘스트 n개에 +1, 모두 완료 퀘스트엔 영향 없음', () => {
+  const quick = { id: 'qk', kind: 'quick', active: true, kid_ids: [K], start_date: '2026-11-24', reward: 15 };
+  const missions = [chore({ id: 'd', repeat: 'daily' }), quick];
+  const subs = [{ mission_id: 'qk', kid_id: K, occurrence_date: '2026-11-24', status: 'approved', decided_at: '2026-11-24T10:00:00' }];
+  const list = kidToday({ missions, submissions: subs }, K, '2026-11-24');
+  assert.deepEqual(list.map((x) => `${x.m.id}:${x.status}`), ['d:todo', 'qk:approved']);
+  assert.equal(kidToday({ missions, submissions: subs }, K, '2026-11-25').some((x) => x.m.id === 'qk'), false);
+  const cnt = questProgress({ id: 'c', goal: 'count', period: 'week', target: 3, kid_ids: [] }, K, { missions, submissions: subs, claims: [] }, '2026-11-24');
+  assert.equal(cnt.done, 1);
+  const all = questProgress({ id: 'a', goal: 'all', period: 'week', mission_ids: [], kid_ids: [] }, K, { missions, submissions: subs, claims: [] }, '2026-11-24');
+  assert.equal(all.total, 7); // 매일 심부름 월~일 7개만 (말로 한 건 제외)
+});

@@ -51,7 +51,8 @@ function checkTab() {
   <section class="p-sec"><h2>코인 사용 요청 <span class="count">${reqs.length}</span></h2>
     ${reqs.length ? `<ul class="p-list">${reqs.map(reqRow).join('')}</ul>` : '<p class="muted pad">새 요청이 없어요</p>'}</section>
   <section class="p-sec"><h2>아이들 현황</h2>
-    ${kids.length ? `<div class="kid-stats">${kids.map(kidStat).join('')}</div>` : empty('🧒', '아이를 먼저 추가해주세요', '가족 탭에서 추가할 수 있어요')}</section>`;
+    ${kids.length ? `<div class="kid-stats">${kids.map(kidStat).join('')}</div>
+      <button class="btn big quick-btn" data-act="new-quick">✍️ 말로 시킨 심부름 기록</button>` : empty('🧒', '아이를 먼저 추가해주세요', '가족 탭에서 추가할 수 있어요')}</section>`;
 }
 
 function subRow(s) {
@@ -95,6 +96,7 @@ function missionsTab() {
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   return `
   <button class="surprise-launch" data-act="new-surprise"><span class="siren">🚨</span><b>돌발 미션 발동!</b><small>아이 화면에 팝업으로 떠요</small></button>
+  <button class="quick-launch" data-act="new-quick"><span>✍️</span><b>말로 시킨 심부름 기록</b><small>바로 코인 적립 + 퀘스트 심부름 수 +1</small></button>
   ${surprises.length ? `<section class="p-sec"><h2>돌발 미션</h2><ul class="p-list">${surprises.map(surpriseRow).join('')}</ul></section>` : ''}
   <section class="p-sec"><h2>심부름 <span class="count">${chores.filter((m) => m.active).length}</span>
       <button class="btn sm primary" data-act="new-chore">+ 추가</button></h2>
@@ -238,6 +240,26 @@ function surpriseSheet() {
   });
 }
 
+function quickSheet(kidId = null) {
+  const chores = state.data.missions.filter((m) => m.kind === 'chore' && m.active);
+  openSheet({
+    title: '✍️ 말로 시킨 심부름',
+    body: `<p class="hint">앱에 없던 심부름을 말로 시켰을 때 기록해요. 바로 코인이 들어가고, 퀘스트의 '심부름 n개'에도 1개로 세요.</p>
+      <form data-form="quick" class="form">
+      <fieldset><legend>누가 했나요?</legend>${kidPicker('kid_ids', kidId ? [kidId] : sortedKids().length === 1 ? [sortedKids()[0].id] : []).replace(/<p class="hint">아무도.*?<\/p>/, '')}</fieldset>
+      ${chores.length ? `<fieldset><legend>비슷한 심부름에서 고르기 <small>(선택)</small></legend><div class="quick">${chores
+        .map((m) => `<button type="button" class="chip" data-act="quick-fill" data-title="${esc(m.title)}" data-emoji="${esc(m.emoji)}" data-reward="${m.reward}">${esc(m.emoji)} ${esc(m.title)}</button>`)
+        .join('')}</div></fieldset>` : ''}
+      <label>무슨 심부름?<input name="title" type="text" maxlength="40" placeholder="예: 마트에서 우유 사오기" required></label>
+      ${emojiPicker('emoji', ['✍️', ...MISSION_EMOJIS], '✍️')}
+      <label>보상 코인<input name="reward" type="number" inputmode="numeric" min="0" value="10" required></label>
+      <fieldset><legend>언제</legend><div class="seg small">
+        <label><input type="radio" name="when" value="0" checked><span>오늘</span></label>
+        <label><input type="radio" name="when" value="-1"><span>어제</span></label></div></fieldset>
+      <button class="btn primary big">기록하고 코인 주기</button></form>`,
+  });
+}
+
 function questSheet(q = null) {
   const v = q || { emoji: '🏆', title: '', goal: 'all', target: 10, period: 'week', start_date: today(), end_date: addDays(today(), 6), mission_ids: [], kid_ids: [], reward: 100, active: true };
   const chores = state.data.missions.filter((m) => m.kind === 'chore' && m.active);
@@ -365,7 +387,10 @@ export const actions = {
             ${coin(x.m.reward, 'sm')}
             ${x.status === 'approved' ? '' : `<button class="btn sm primary" data-act="complete-for" data-k="${x.m.id}|${k.id}|${x.date}">완료 처리</button>`}</li>`).join('')}</ul>`
         : empty('🌈', '오늘 할 심부름이 없어요'),
+      cls: 'kid-today',
     });
+    document.querySelector('.sheet-body')?.insertAdjacentHTML('beforeend',
+      `<button class="btn big quick-btn" data-act="new-quick" data-kid="${k.id}">✍️ 말로 시킨 심부름 기록</button>`);
   },
   'complete-for': async (el) => {
     const [mid, kid, date] = el.dataset.k.split('|');
@@ -395,6 +420,17 @@ export const actions = {
     if (expired) return run(() => api.save('missions', { id: m.id, active: false }));
     const ok = await confirmDialog({ title: '돌발 미션을 끝낼까요?', message: '아이 화면에서 사라져요.', ok: '끝내기' });
     if (ok) run(() => api.save('missions', { id: m.id, active: false }), '끝냈어요');
+  },
+  'new-quick': (el) => {
+    if (!state.data.kids.length) return toast('아이를 먼저 추가해주세요', 'err');
+    quickSheet(el.dataset.kid || null);
+  },
+  'quick-fill': (el) => {
+    const f = el.closest('form');
+    f.querySelector('[name=title]').value = el.dataset.title;
+    f.querySelector('[name=reward]').value = el.dataset.reward;
+    const r = f.querySelector(`[name=emoji][value="${CSS.escape(el.dataset.emoji)}"]`);
+    if (r) r.checked = true;
   },
   'new-quest': () => questSheet(),
   'edit-quest': (el) => questSheet(byId('quests', el.dataset.id)),
@@ -488,6 +524,17 @@ export const forms = {
     if (await run(() => api.save('missions', row))) {
       closeSheet();
       toast('🚨 돌발 미션 발동! 아이 화면에 팝업이 떠요', 'ok');
+    }
+  },
+  quick: async (f) => {
+    const d = formData(f);
+    const kids = d.kid_ids || [];
+    if (!kids.length) return toast('누가 했는지 골라주세요', 'err');
+    const date = addDays(today(), Number(d.when || 0));
+    const reward = num(d.reward);
+    if (await run(() => api.quickChore(spaceId(), kids, d.title.trim(), d.emoji, reward, date), `${kids.length}명에게 ${fmt(reward)}코인을 줬어요`)) {
+      closeSheet();
+      confetti();
     }
   },
   quest: async (f) => {

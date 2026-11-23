@@ -23,6 +23,12 @@ const dayOf = (ts) => (ts ? toISO(new Date(ts)) : null);
 export function kidToday({ missions, submissions }, kidId, today) {
   const out = [];
   for (const m of missions) {
+    if (m.kind === 'quick') {
+      // 말로 시킨 심부름: 오늘 기록된 것만 '완료' 로 보여줌
+      const sub = appliesTo(m, kidId) && subFor(submissions, m.id, kidId, m.start_date);
+      if (sub && m.start_date === today) out.push({ m, date: m.start_date, sub, status: statusOf(sub), quick: true });
+      continue;
+    }
     if (m.kind !== 'chore' || !m.active || !appliesTo(m, kidId)) continue;
     if (isRecurring(m)) {
       if (!occursOn(m, today)) continue;
@@ -95,6 +101,7 @@ export function occurrencesInRange(missions, kidId, from, to, onlyIds = []) {
 
 export const DAY_CHOICES = [1, 2, 3, 4, 5, 6, 0];
 export function repeatLabel(m) {
+  if (m.kind === 'quick') return '말로 한 심부름';
   if (m.repeat === 'daily') return '매일';
   if (m.repeat === 'weekly') {
     const days = DAY_CHOICES.filter((d) => (m.repeat_days || []).includes(d));

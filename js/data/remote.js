@@ -89,6 +89,8 @@ export const submit = (missionId, kidId, date) => rpc('qc_submit', { p_mission_i
 export const unsubmit = (id) => rpc('qc_unsubmit', { p_id: id });
 export const decideSubmission = (id, approve) => rpc('qc_decide_submission', { p_id: id, p_approve: approve });
 export const completeFor = (missionId, kidId, date) => rpc('qc_complete_for', { p_mission_id: missionId, p_kid_id: kidId, p_date: date });
+export const quickChore = (spaceId, kidIds, title, emoji, reward, date) =>
+  rpc('qc_quick_chore', { p_space_id: spaceId, p_kid_ids: kidIds, p_title: title, p_emoji: emoji, p_reward: reward, p_date: date });
 export const claimQuest = (questId, kidId, key) => rpc('qc_claim_quest', { p_quest_id: questId, p_kid_id: kidId, p_period_key: key });
 export const createRequest = ({ kidId, kind, title = null, coins = null, itemId = null, memo = null }) =>
   rpc('qc_create_request', { p_kid_id: kidId, p_kind: kind, p_title: title, p_coins: coins, p_item_id: itemId, p_memo: memo });

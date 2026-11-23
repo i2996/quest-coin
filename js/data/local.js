@@ -182,6 +182,25 @@ export async function completeFor(missionId, kidId, date) {
   Object.assign(s, { status: 'pending', reward: m.reward });
   return decideSubmission(s.id, true);
 }
+export async function quickChore(_s, kidIds, title, emoji, reward, date) {
+  needParent();
+  const d = S();
+  title = String(title || '').trim();
+  if (!title) fail('무슨 심부름인지 적어주세요');
+  if (!kidIds?.length) fail('누가 했는지 골라주세요');
+  reward = Math.max(0, Number(reward) || 0);
+  const m = { id: uid(), space_id: d.space.id, kind: 'quick', title, emoji: emoji || '✍️', reward, memo: null, kid_ids: kidIds,
+    repeat: 'none', repeat_days: [], start_date: date, due_date: null, expires_at: null, first_come: false, active: true, created_at: now() };
+  d.missions.push(m);
+  for (const k of kidIds) {
+    find('kids', k) || fail('아이를 찾을 수 없어요');
+    const s = { id: uid(), space_id: d.space.id, mission_id: m.id, kid_id: k, occurrence_date: date, status: 'approved', reward, created_at: now(), decided_at: now() };
+    d.submissions.push(s);
+    if (reward > 0) addLedger(k, reward, title, 'submission', m.id);
+  }
+  write();
+  return kidIds.length;
+}
 export async function claimQuest(questId, kidId, key) {
   const d = S();
   const q = find('quests', questId) || fail('퀘스트를 찾을 수 없어요');

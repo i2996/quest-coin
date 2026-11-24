@@ -84,14 +84,27 @@ export async function syncPush() {
   }
 }
 
+let turningOn = false;
 async function turnOn() {
+  if (turningOn) return toast('알림 켜는 중이에요… 잠시만요');
+  turningOn = true;
+  try {
+    await turnOnInner();
+  } finally {
+    turningOn = false;
+  }
+}
+
+async function turnOnInner() {
   const st = pushState();
   if (HELP[st]) return confirmDialog({ title: '알림을 켤 수 없어요', message: HELP[st] + (st === 'blocked' ? deviceGuide() : ''), ok: '알겠어요', cancel: '' });
   const w = who();
+  if (push.permission() !== 'granted') toast('🔔 알림 허용 창이 뜨면 "허용"을 눌러주세요');
+  else toast('🔔 알림 켜는 중…');
   try {
     if (mode === 'demo') {
       // 체험 모드: 서버가 없으니 허용만 받고 테스트 알림
-      if (Notification.permission !== 'granted' && (await Notification.requestPermission()) !== 'granted') throw new Error('알림이 허용되지 않았어요.');
+      await push.askPermission();
     } else {
       const sub = await push.subscribe();
       await api.savePush(spaceId(), sub, w === 'parent' ? null : w, w === 'parent');
@@ -101,7 +114,9 @@ async function turnOn() {
     set();
   } catch (e) {
     // 짧은 토스트 대신 창으로: 왜 안 켜졌는지 + 이 폰에서 허용하는 방법
-    const denied = push.permission() === 'denied' || /허용되지 않았/.test(e.message || '');
+    const denied = push.permission() === 'denied' || e.code === 'denied' || e.code === 'perm_timeout' || /허용되지 않았/.test(e.message || '');
+    if (e.code === 'perm_timeout') e.message = '알림 허용 창이 뜨지 않았어요. 폰·브라우저 설정에서 직접 허용해 주세요.';
+    if (e.code === 'sub_timeout') e.message = '알림 서버 연결(구독)이 응답하지 않아요. 인터넷 연결을 확인하고, 앱을 완전히 닫았다가 다시 열어 한 번 더 눌러주세요.';
     return confirmDialog({
       title: '알림을 켜지 못했어요',
       message: `${e.message || e}\n\n${denied ? '이 폰에서 알림을 허용하는 방법:\n' + deviceGuide() : '앱을 완전히 닫았다가 다시 열고 한 번 더 눌러주세요.'}`,

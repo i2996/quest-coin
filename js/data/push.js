@@ -28,15 +28,33 @@ export async function current() {
   }
 }
 
+/** 응답이 없으면 ms 뒤 오류 (일부 브라우저는 허용 창을 안 띄우고 영원히 기다림) */
+function withTimeout(promise, ms, message, code) {
+  let t;
+  const timeout = new Promise((_, rej) => {
+    t = setTimeout(() => rej(Object.assign(new Error(message), { code })), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
+}
+export const TIMEOUTS = { permission: 25000, subscribe: 15000 };
+
+/** 알림 허용 묻기 (응답 없으면 perm_timeout, 거절이면 denied 오류) */
+export async function askPermission() {
+  if (Notification.permission === 'granted') return;
+  const r = await withTimeout(Promise.resolve(Notification.requestPermission()), TIMEOUTS.permission,
+    '알림 허용 창이 뜨지 않았어요.', 'perm_timeout');
+  if (r !== 'granted') throw Object.assign(new Error('알림이 허용되지 않았어요.'), { code: 'denied' });
+}
+
 /** 알림 허용을 묻고 구독 (이미 있으면 그대로). 반환: PushSubscription */
 export async function subscribe({ ask = true } = {}) {
   if (!supported()) throw new Error('이 브라우저는 알림을 지원하지 않아요.');
-  if (ask && Notification.permission !== 'granted') {
-    if ((await Notification.requestPermission()) !== 'granted') throw new Error('알림이 허용되지 않았어요. 브라우저 설정에서 이 사이트 알림을 허용해주세요.');
-  }
+  if (ask) await askPermission();
   const reg = await registration();
-  return (await reg.pushManager.getSubscription()) ||
-    reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(vapidKey()) });
+  const existing = await reg.pushManager.getSubscription();
+  if (existing) return existing;
+  return withTimeout(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(vapidKey()) }),
+    TIMEOUTS.subscribe, '알림 서버 연결(구독)이 응답하지 않아요.', 'sub_timeout');
 }
 
 export async function unsubscribe() {

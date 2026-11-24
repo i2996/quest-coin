@@ -500,6 +500,6 @@ legend { font-size: 15px; padding: 0; margin-bottom: 6px; }
 .coupon.ready .c-left { background: var(--ok-soft); }
 .coupon.ready .barcode { margin-top: 4px; }
 .coupon.past { opacity: .7; }
-.used-stamp { display: inline-block; margin-top: 2px; transform: rotate(-8deg); font: 20px var(--font-head); color: var(--hot); border: 3px solid var(--hot); border-radius: 8px; padding: 0 8px; opacity: .55; pointer-events: none; letter-spacing: 2px; }
+.used-stamp { display: inline-block; margin-top: 2px; transform: rotate(-8deg); font: 16px var(--font-head); color: var(--hot); border: 2.5px solid var(--hot); border-radius: 8px; padding: 1px 8px; opacity: .6; pointer-events: none; white-space: nowrap; }
 .later.past .coupons { margin-bottom: 10px; }
 .st.ready { color: var(--ok); background: var(--ok-soft); }

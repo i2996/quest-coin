@@ -53,6 +53,18 @@ export function plan(ev, ctx) {
     return out;
   }
 
+  if (kind === 'request' && r.kind === 'shop') {
+    // 기프티콘 쿠폰: 구매(보유) → 사용하기(using) → 사줬어요(done) / 다음에(owned) / 환불
+    const note = r.parent_note ? ` · “${r.parent_note}”` : '';
+    const item = `${r.emoji || '🎁'} ${r.title}`;
+    if (r.status === 'owned' && old == null) push('parents', `🎁 ${name(r.kid_id)}: 기프티콘 구매`, `${item} · ${fmt(r.coins)}코인 (쿠폰함에 보관)`, `req-${r.id}`);
+    else if (r.status === 'using' || r.status === 'pending') push('parents', `🎟️ ${name(r.kid_id)}: 쿠폰 쓸래요!`, `${item}${r.memo ? ` · “${r.memo}”` : ''}`, `req-${r.id}`);
+    else if (r.status === 'done') push(r.kid_id, '🎉 쿠폰 사용 완료!', `${item}${note}`, `req-${r.id}`);
+    else if (r.status === 'owned' && old === 'using' && r.decided_at) push(r.kid_id, '⏳ 다음에 써요', `${item} — 쿠폰은 그대로 있어요${note}`, `req-${r.id}`);
+    else if (r.status === 'rejected') push(r.kid_id, '😢 쿠폰이 환불됐어요', `${item} · ${fmt(r.coins)}코인 돌려받음${note}`, `req-${r.id}`);
+    return out;
+  }
+
   if (kind === 'request') {
     const note = r.parent_note ? ` · “${r.parent_note}”` : '';
     if (r.status === 'pending') {

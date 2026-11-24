@@ -120,6 +120,8 @@ export const quickChore = (spaceId, kidIds, title, emoji, reward, date) =>
 export const claimQuest = (questId, kidId, key) => rpc('qc_claim_quest', { p_quest_id: questId, p_kid_id: kidId, p_period_key: key });
 export const createRequest = ({ kidId, kind, title = null, coins = null, itemId = null, memo = null }) =>
   rpc('qc_create_request', { p_kid_id: kidId, p_kind: kind, p_title: title, p_coins: coins, p_item_id: itemId, p_memo: memo });
+/** 기프티콘 쿠폰: use(사용하기) / unuse(사용 취소·다음에) / done(사줬어요) / refund(환불) */
+export const coupon = (id, action, note = null) => rpc('qc_coupon', { p_id: id, p_action: action, p_note: note });
 export const decideRequest = (id, status, note = null) => rpc('qc_decide_request', { p_id: id, p_status: status, p_note: note });
 export const adjust = (kidId, amount, reason) => rpc('qc_adjust', { p_kid_id: kidId, p_amount: amount, p_reason: reason });
 export const transfer = (fromId, toId, coins, memo) => rpc('qc_transfer', { p_from: fromId, p_to: toId, p_coins: coins, p_memo: memo });

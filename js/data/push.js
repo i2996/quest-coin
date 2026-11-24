@@ -12,11 +12,12 @@ function keyToBytes(b64) {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
 
-/** 서비스 워커 준비 (등록 안 됐으면 등록) */
+/** 서비스 워커 준비 (등록 안 됐으면 등록). 8초 넘으면 sw_timeout */
 async function registration() {
-  if (!navigator.serviceWorker.controller) await navigator.serviceWorker.register('sw.js').catch(() => {});
-  const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('앱 준비가 덜 됐어요. 새로고침한 뒤 다시 눌러주세요.')), 6000));
-  return Promise.race([navigator.serviceWorker.ready, timeout]);
+  return withTimeout((async () => {
+    if (!navigator.serviceWorker.controller) await navigator.serviceWorker.register('sw.js').catch(() => {});
+    return navigator.serviceWorker.ready;
+  })(), 8000, '앱 준비(알림 처리기)가 끝나지 않았어요. 앱을 완전히 닫았다가 다시 열어주세요.', 'sw_timeout');
 }
 
 export async function current() {
@@ -36,6 +37,7 @@ function withTimeout(promise, ms, message, code) {
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
 }
+export { withTimeout };
 export const TIMEOUTS = { permission: 25000, subscribe: 15000 };
 
 /** 알림 허용 묻기 (응답 없으면 perm_timeout, 거절이면 denied 오류) */
@@ -46,13 +48,19 @@ export async function askPermission() {
   if (r !== 'granted') throw Object.assign(new Error('알림이 허용되지 않았어요.'), { code: 'denied' });
 }
 
-/** 알림 허용을 묻고 구독 (이미 있으면 그대로). 반환: PushSubscription */
-export async function subscribe({ ask = true } = {}) {
+/** 알림 허용을 묻고 구독 (이미 있으면 그대로). 반환: PushSubscription. onStep(이름)으로 지금 단계를 알려줌 */
+export async function subscribe({ ask = true, onStep = () => {} } = {}) {
   if (!supported()) throw new Error('이 브라우저는 알림을 지원하지 않아요.');
-  if (ask) await askPermission();
+  if (ask) {
+    onStep('알림 허용 묻기');
+    await askPermission();
+  }
+  onStep('앱 알림 처리기 준비');
   const reg = await registration();
-  const existing = await reg.pushManager.getSubscription();
+  onStep('이 폰의 알림 구독 확인');
+  const existing = await withTimeout(reg.pushManager.getSubscription(), 8000, '이 폰의 알림 구독 정보를 읽지 못했어요.', 'getsub_timeout');
   if (existing) return existing;
+  onStep('알림 서버에 구독');
   return withTimeout(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyToBytes(vapidKey()) }),
     TIMEOUTS.subscribe, '알림 서버 연결(구독)이 응답하지 않아요.', 'sub_timeout');
 }
@@ -68,7 +76,7 @@ export async function unsubscribe() {
 /** 서버 없이 이 기기에서 알림이 뜨는지 확인 */
 export async function showTest(title = '퀘스트 코인', body = '알림이 잘 와요 🎉') {
   const reg = await registration();
-  await reg.showNotification(title, { body, icon: new URL('icons/icon-192.png', document.baseURI).href, tag: 'test' });
+  await withTimeout(reg.showNotification(title, { body, icon: new URL('icons/icon-192.png', document.baseURI).href, tag: 'test' }), 5000, '테스트 알림을 띄우지 못했어요.', 'show_timeout');
 }
 
 /** 지금 이 폰에서 동작 중인 알림 처리기(서비스 워커) 버전. 모르면 null */
@@ -128,4 +136,39 @@ export function waitForPush(since, ms = 10000) {
     }, 1000);
     const timer = setTimeout(() => finish(null), ms);
   });
+}
+
+/** 이 폰이 말해주는 알림 상태 (문제 생겼을 때 캡처용). 각 항목은 2~3초 안에 끝남 */
+export async function deviceStatus() {
+  const ua = navigator.userAgent;
+  const browser = (ua.match(/SamsungBrowser\/[\d.]+/) || ua.match(/(?:CriOS|Chrome)\/\d+/) || ua.match(/Version\/[\d.]+.*Safari/) || ['?'])[0];
+  const q = async (desc) => {
+    try {
+      return (await withTimeout(navigator.permissions.query(desc), 2000, 't', 't')).state;
+    } catch {
+      return '?';
+    }
+  };
+  const lines = [];
+  lines.push(`브라우저: ${browser} · 홈 화면 앱: ${isStandalone() ? '예' : '아니오'}`);
+  lines.push(`알림 권한: ${supported() ? Notification.permission : '지원 안 함'} / ${await q({ name: 'notifications' })} / 푸시 ${await q({ name: 'push', userVisibleOnly: true })}`);
+  let reg = null;
+  try {
+    reg = await withTimeout(navigator.serviceWorker.getRegistration(), 2000, 't', 't');
+  } catch { /* 없음 */ }
+  const ver = reg ? await swVersion().catch(() => null) : null;
+  lines.push(`알림 처리기: ${reg ? (reg.active ? '작동 중' : '준비 중') : '없음'}${ver ? ` (${ver})` : ''} · 앱 제어: ${navigator.serviceWorker?.controller ? '예' : '아니오'}`);
+  if (reg && 'pushManager' in reg) {
+    let sub = '?';
+    try {
+      const s = await withTimeout(reg.pushManager.getSubscription(), 3000, 't', 't');
+      sub = s ? `있음 (${new URL(s.endpoint).hostname})` : '없음';
+    } catch {
+      sub = '확인 안 됨(응답 없음)';
+    }
+    lines.push(`이 폰 구독: ${sub}`);
+  }
+  const last = await lastReceived();
+  if (last) lines.push(`마지막 받은 서버 알림: ${new Date(last.at).toLocaleString('ko-KR')}`);
+  return lines.join('\n');
 }

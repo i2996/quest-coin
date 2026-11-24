@@ -284,6 +284,8 @@ function proxyPane() {
 /* ---------------- 지갑 ---------------- */
 const REQ_STATUS = {
   pending: { label: '준비 중', cls: 'wait' },
+  owned: { label: '쓸 수 있어요', cls: 'ready' },
+  using: { label: '부모님 확인 중', cls: 'wait' },
   done: { label: '받았어요', cls: 'done' },
   rejected: { label: '거절 · 코인 돌려받음', cls: 'no' },
   canceled: { label: '취소함', cls: 'no' },
@@ -304,24 +306,59 @@ function walletTab(k) {
     ${sub === 'history' ? historyList(ledger) : couponList(reqs)}`;
 }
 
+/** 기프티콘(shop) 상태: 예전 방식 '대기'는 '사용 요청'과 같게 봄 */
+const couponState = (r) => (r.kind === 'shop' && r.status === 'pending' ? 'using' : r.status);
+
 function couponList(reqs) {
   if (!reqs.length) return empty('🎟️', '아직 산 게 없어요', '상점에서 코인을 써보세요!');
-  return `<div class="coupons">${reqs
-    .map((r) => {
-      const st = REQ_STATUS[r.status];
-      return `<article class="coupon ${r.kind} ${st.cls}">
-        <div class="c-left"><span>${esc(r.emoji || '🎁')}</span></div>
-        <div class="c-main"><small>${REQ_KIND[r.kind]}</small><b>${esc(r.title)}</b>
-          ${r.kind === 'cash' ? `<small>${won(r.won)}</small>` : ''}
-          ${r.memo ? `<small>“${esc(r.memo)}”</small>` : ''}
-          ${r.parent_note ? `<small class="note">부모님: ${esc(r.parent_note)}</small>` : ''}
-          <small class="muted">${timeAgo(r.created_at)}</small></div>
-        <div class="c-right">${coin(r.coins, 'sm')}<span class="st ${st.cls}">${st.label}</span>
-          ${r.status === 'pending' ? `<button class="link" data-act="cancel-req" data-id="${r.id}">취소</button>` : ''}
-          ${r.kind === 'shop' && r.status === 'done' ? '<span class="barcode" aria-hidden="true"></span>' : ''}</div>
-      </article>`;
-    })
-    .join('')}</div>`;
+  const ready = reqs.filter((r) => r.kind === 'shop' && couponState(r) === 'owned');
+  const waiting = reqs.filter((r) => couponState(r) === 'using' || (r.kind !== 'shop' && r.status === 'pending'));
+  const past = reqs.filter((r) => !ready.includes(r) && !waiting.includes(r));
+  return `
+    <h3 class="cp-title">🎟️ 쓸 수 있는 쿠폰 <span class="count">${ready.length}</span></h3>
+    ${ready.length ? `<div class="coupons">${ready.map(readyCoupon).join('')}</div>` : '<p class="muted pad">지금 쓸 수 있는 쿠폰이 없어요</p>'}
+    ${waiting.length ? `<h3 class="cp-title">⏳ 부모님 확인 중 <span class="count">${waiting.length}</span></h3><div class="coupons">${waiting.map(waitingCoupon).join('')}</div>` : ''}
+    ${past.length ? `<details class="later past"><summary>지난 쿠폰·요청 ${past.length}개</summary><div class="coupons">${past.map(pastCoupon).join('')}</div></details>` : ''}`;
+}
+
+const couponHead = (r) => `<div class="c-left"><span>${esc(r.emoji || '🎁')}</span></div>`;
+
+function readyCoupon(r) {
+  return `<article class="coupon shop ready">
+    ${couponHead(r)}
+    <div class="c-main"><small>기프티콘 · ${timeAgo(r.created_at)}에 삼</small><b>${esc(r.title)}</b>
+      ${r.parent_note ? `<small class="note">부모님: ${esc(r.parent_note)}</small>` : ''}
+      <span class="barcode" aria-hidden="true"></span></div>
+    <div class="c-right"><button class="btn go" data-act="coupon-use" data-id="${r.id}">사용하기</button>
+      <button class="link" data-act="coupon-refund" data-id="${r.id}">환불</button></div>
+  </article>`;
+}
+
+function waitingCoupon(r) {
+  const shop = r.kind === 'shop';
+  return `<article class="coupon ${r.kind} wait">
+    ${couponHead(r)}
+    <div class="c-main"><small>${shop ? '쿠폰 사용 요청' : REQ_KIND[r.kind]}</small><b>${esc(r.title)}</b>
+      ${r.kind === 'cash' ? `<small>${won(r.won)}</small>` : ''}
+      ${r.memo ? `<small>“${esc(r.memo)}”</small>` : ''}
+      <small class="muted">${timeAgo(r.use_requested_at || r.created_at)} · ${shop ? '부모님이 사주시면 사용 완료돼요' : '부모님이 확인하면 완료돼요'}</small></div>
+    <div class="c-right">${coin(r.coins, 'sm')}<span class="st wait">확인 중 ⏳</span>
+      <button class="link" data-act="${shop ? 'coupon-unuse' : 'cancel-req'}" data-id="${r.id}">${shop ? '사용 취소' : '취소'}</button></div>
+  </article>`;
+}
+
+function pastCoupon(r) {
+  const used = r.kind === 'shop' && r.status === 'done';
+  const st = used ? { label: '사용 완료', cls: 'done' } : r.kind === 'shop' && ['rejected', 'canceled'].includes(r.status)
+    ? { label: '환불 · 코인 돌려받음', cls: 'no' } : REQ_STATUS[r.status] || { label: r.status, cls: 'no' };
+  return `<article class="coupon ${r.kind} ${st.cls} past">
+    ${couponHead(r)}
+    <div class="c-main"><small>${r.kind === 'shop' ? '기프티콘' : REQ_KIND[r.kind]}</small><b>${esc(r.title)}</b>
+      ${r.kind === 'cash' ? `<small>${won(r.won)}</small>` : ''}
+      ${r.parent_note ? `<small class="note">부모님: ${esc(r.parent_note)}</small>` : ''}
+      <small class="muted">${timeAgo(r.decided_at || r.created_at)}</small></div>
+    <div class="c-right">${coin(r.coins, 'sm')}${used ? '<span class="used-stamp">USED</span>' : `<span class="st ${st.cls}">${st.label}</span>`}</div>
+  </article>`;
 }
 
 function historyList(ledger) {
@@ -376,9 +413,24 @@ export const actions = {
         ${it.memo ? `<p>${esc(it.memo)}</p>` : ''}
         <p class="calc">${coin(b)} − ${coin(it.price)} = ${coin(b - it.price)}</p></div>
         <form data-form="buy" class="form"><input type="hidden" name="id" value="${it.id}">
-        <label>부모님께 한마디 <small>(선택)</small><input name="memo" type="text" maxlength="100" placeholder="예: 금요일 저녁에 먹고 싶어요"></label>
+        <p class="hint center">사면 쿠폰이 지갑에 들어가요. 쓰고 싶을 때 <b>사용하기</b>를 누르면 부모님께 알려줘요.</p>
         <button class="btn primary big">${fmt(it.price)}코인으로 사기</button></form>`,
     });
+  },
+  'coupon-use': async (el) => {
+    const r = state.data.requests.find((x) => x.id === el.dataset.id);
+    const memo = await confirmDialog({ title: `${r?.emoji || '🎁'} ${r?.title || '쿠폰'} 쓸까요?`, message: '부모님께 사용 요청을 보내요. 부모님이 사주시면 사용 완료돼요.', ok: '사용하기', input: { placeholder: '언제·어떻게 쓰고 싶어요? (선택)' } });
+    if (memo == null) return;
+    if (await run(() => api.coupon(el.dataset.id, 'use', memo))) toast('부모님께 사용 요청을 보냈어요 🎟️', 'ok');
+  },
+  'coupon-unuse': async (el) => {
+    const ok = await confirmDialog({ title: '사용 요청을 취소할까요?', message: '쿠폰은 다시 "쓸 수 있는 쿠폰"으로 돌아가요.', ok: '요청 취소', cancel: '그대로 두기' });
+    if (ok) run(() => api.coupon(el.dataset.id, 'unuse'), '사용 요청을 취소했어요');
+  },
+  'coupon-refund': async (el) => {
+    const r = state.data.requests.find((x) => x.id === el.dataset.id);
+    const ok = await confirmDialog({ title: '쿠폰을 환불할까요?', message: `${fmt(r?.coins || 0)}코인을 돌려받고 쿠폰은 사라져요.`, ok: '환불하기', cancel: '그대로 두기', danger: true });
+    if (ok) run(() => api.coupon(el.dataset.id, 'refund'), '코인을 돌려받았어요');
   },
   'cancel-req': async (el) => {
     const ok = await confirmDialog({ title: '요청을 취소할까요?', message: '코인은 바로 돌려받아요.', ok: '취소하기', cancel: '그대로 두기' });
@@ -458,11 +510,12 @@ export function onInput(e) {
 export const forms = {
   buy: async (f) => {
     const d = formData(f);
-    const r = await run(() => api.createRequest({ kidId: who(), kind: 'shop', itemId: d.id, memo: d.memo }));
+    const r = await run(() => api.createRequest({ kidId: who(), kind: 'shop', itemId: d.id }));
     if (r) {
       closeSheet();
       confetti();
-      toast('구매 완료! 지갑의 쿠폰함을 확인하세요 🎟️', 'ok');
+      set({ kidTab: 'wallet', walletTab: 'coupons' });
+      toast('쿠폰이 지갑에 들어왔어요! 쓰고 싶을 때 "사용하기" 🎟️', 'ok');
     }
   },
   cash: async (f) => {

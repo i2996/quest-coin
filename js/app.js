@@ -62,7 +62,11 @@ function celebrateGain(w) {
   if (!w || w === 'parent') return;
   const now = balanceOf(state.data.ledger, w);
   const last = prefs.lastBalance(w);
-  if (last != null && now > last) coinRain(now - last, '코인 획득!');
+  if (last != null && now > last) {
+    // 환불(쿠폰 환불·요청 취소)로 돌려받은 건 '획득'이 아니라서 축하하지 않음
+    const latest = state.data.ledger.filter((l) => l.kid_id === w).reduce((a, b) => (!a || b.created_at > a.created_at ? b : a), null);
+    if (latest?.ref_type !== 'refund') coinRain(now - last, '코인 획득!');
+  }
   if (last !== now) prefs.setLastBalance(w, now);
 }
 

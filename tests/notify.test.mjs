@@ -68,3 +68,16 @@ test('그 사이 상태가 바뀐 알림은 건너뜀', () => {
   assert.equal(stillCurrent({ row: { status: 'pending' } }, { status: 'pending' }), true);
   assert.equal(stillCurrent({ row: { id: 'x' } }, null), true);
 });
+
+test('기프티콘 쿠폰: 구매·사용 요청 → 부모 / 사용 완료·다음에·환불 → 아이 / 아이 본인 취소는 조용히', () => {
+  const c = { id: 'c', kid_id: 'a', kind: 'shop', title: '치킨', emoji: '🍗', coins: 300 };
+  assert.deepEqual(to(plan({ kind: 'request', row: { ...c, status: 'owned' }, old_status: null }, { kids })), ['parents']);
+  const use = plan({ kind: 'request', row: { ...c, status: 'using', memo: '금요일에' }, old_status: 'owned' }, { kids });
+  assert.deepEqual(to(use), ['parents']);
+  assert.match(use[0].title, /하늘: 쿠폰 쓸래요/);
+  assert.match(use[0].body, /금요일에/);
+  assert.match(plan({ kind: 'request', row: { ...c, status: 'done' }, old_status: 'using' }, { kids })[0].title, /사용 완료/);
+  assert.deepEqual(to(plan({ kind: 'request', row: { ...c, status: 'owned', decided_at: 'x' }, old_status: 'using' }, { kids })), ['a']);
+  assert.deepEqual(to(plan({ kind: 'request', row: { ...c, status: 'owned', decided_at: null }, old_status: 'using' }, { kids })), []);
+  assert.match(plan({ kind: 'request', row: { ...c, status: 'rejected' }, old_status: 'using' }, { kids })[0].body, /300코인 돌려받음/);
+});

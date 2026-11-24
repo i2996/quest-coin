@@ -245,7 +245,8 @@ export async function createRequest({ kidId, kind, title = null, coins = null, i
   if (balanceOf(d.ledger, kidId) < coins) fail('코인이 모자라요');
   if (it && it.stock != null) it.stock -= 1;
   const r = { id: uid(), space_id: d.space.id, kid_id: kidId, kind, title, emoji, coins, won, item_id: it?.id ?? null,
-    memo: String(memo || '').trim() || null, status: 'pending', parent_note: null, created_at: now(), decided_at: null };
+    memo: String(memo || '').trim() || null, status: kind === 'shop' ? 'owned' : 'pending', parent_note: null, created_at: now(), decided_at: null,
+    use_requested_at: null };
   d.requests.push(r);
   addLedger(kidId, -coins, kind === 'shop' ? '기프티콘 · ' + title : kind === 'cash' ? '용돈 교환' : '부모님께 지불 · ' + title, 'request', r.id);
   write();
@@ -255,7 +256,7 @@ export async function decideRequest(id, status, note = null) {
   const d = S();
   const r = find('requests', id) || fail('요청을 찾을 수 없어요');
   if (status !== 'canceled') needParent();
-  if (r.status !== 'pending') fail('이미 처리된 요청이에요');
+  if (r.kind === 'shop' ? !['pending', 'owned', 'using'].includes(r.status) : r.status !== 'pending') fail('이미 처리된 요청이에요');
   Object.assign(r, { status, parent_note: String(note || '').trim() || null, decided_at: now() });
   if (status === 'rejected' || status === 'canceled') {
     addLedger(r.kid_id, r.coins, (status === 'rejected' ? '돌려받음 · ' : '취소 · ') + r.title, 'refund', r.id);
@@ -365,4 +366,34 @@ export async function removePhoto(path) {
 }
 export async function serverPushTest() {
   return { demo: true };
+}
+
+// 기프티콘 쿠폰 (schema.sql 의 qc_coupon 과 같은 규칙)
+export async function coupon(id, action, note = null) {
+  const d = S();
+  const r = find('requests', id);
+  if (!r || r.kind !== 'shop') fail('쿠폰을 찾을 수 없어요');
+  const parent = d.role === 'parent';
+  const v = String(note || '').trim() || null;
+  const st = r.status === 'pending' ? 'using' : r.status;
+  if (action === 'use') {
+    if (st !== 'owned') fail('쓸 수 있는 쿠폰이 아니에요');
+    Object.assign(r, { status: 'using', use_requested_at: now(), memo: v || r.memo, parent_note: null, decided_at: null });
+  } else if (action === 'unuse') {
+    if (st !== 'using') fail('사용 요청 중인 쿠폰이 아니에요');
+    Object.assign(r, { status: 'owned', use_requested_at: null, parent_note: parent ? v : null, decided_at: parent ? now() : null });
+  } else if (action === 'done') {
+    if (!parent) fail('부모만 할 수 있어요');
+    if (!['owned', 'using'].includes(st)) fail('이미 쓴 쿠폰이에요');
+    Object.assign(r, { status: 'done', decided_at: now(), parent_note: v });
+  } else if (action === 'refund') {
+    if (!['owned', 'using'].includes(st)) fail('환불할 수 없는 쿠폰이에요');
+    if (st === 'using' && !parent) fail('사용 요청 중에는 먼저 요청을 취소해주세요');
+    Object.assign(r, { status: parent ? 'rejected' : 'canceled', decided_at: now(), parent_note: v });
+    addLedger(r.kid_id, r.coins, '쿠폰 환불 · ' + r.title, 'refund', r.id);
+    const it = find('items', r.item_id);
+    if (it && it.stock != null) it.stock += 1;
+  } else fail('알 수 없는 동작');
+  write();
+  return r;
 }

@@ -143,6 +143,20 @@ create table if not exists public.qc_requests (
   decided_at  timestamptz
 );
 create index if not exists qc_requests_space_idx on public.qc_requests(space_id, status);
+-- 기프티콘(shop)은 쿠폰처럼: 사면 바로 owned(보유) → 아이가 '사용하기' using → 부모가 사주면 done(사용 완료)
+alter table public.qc_requests drop constraint if exists qc_requests_status_check;
+alter table public.qc_requests add constraint qc_requests_status_check
+  check (status in ('pending', 'owned', 'using', 'done', 'rejected', 'canceled'));
+alter table public.qc_requests add column if not exists use_requested_at timestamptz;   -- 아이가 '사용하기' 누른 시각
+-- 예전 방식(구매 → 부모 확인 대기)으로 대기 중이던 기프티콘은 '사용 요청'으로 옮김 (옮기면서 알림은 보내지 않음)
+do $$
+declare has_trg boolean := exists (select 1 from pg_trigger where tgname = 'qc_notify_requests' and tgrelid = 'public.qc_requests'::regclass);
+begin
+  if has_trg then execute 'alter table public.qc_requests disable trigger qc_notify_requests'; end if;
+  update public.qc_requests set status = 'using', use_requested_at = coalesce(use_requested_at, created_at)
+    where kind = 'shop' and status = 'pending';
+  if has_trg then execute 'alter table public.qc_requests enable trigger qc_notify_requests'; end if;
+end $$;
 
 -- 코인 장부 (잔액 = 합계)
 create table if not exists public.qc_ledger (
@@ -483,8 +497,9 @@ begin
   if coalesce(v_coins, 0) <= 0 then raise exception '코인을 1개 이상 입력해주세요'; end if;
   if public.qc_balance(k.id) < v_coins then raise exception '코인이 모자라요'; end if;
 
-  insert into public.qc_requests(space_id, kid_id, kind, title, emoji, coins, won, item_id, memo)
-    values (k.space_id, k.id, p_kind, v_title, v_emoji, v_coins, v_won, it.id, nullif(trim(coalesce(p_memo, '')), ''))
+  insert into public.qc_requests(space_id, kid_id, kind, title, emoji, coins, won, item_id, memo, status)
+    values (k.space_id, k.id, p_kind, v_title, v_emoji, v_coins, v_won, it.id, nullif(trim(coalesce(p_memo, '')), ''),
+            case when p_kind = 'shop' then 'owned' else 'pending' end)   -- 기프티콘은 바로 쿠폰함에
     returning * into r;
   insert into public.qc_ledger(space_id, kid_id, amount, reason, ref_type, ref_id)
     values (k.space_id, k.id, -v_coins,
@@ -493,7 +508,8 @@ begin
   return r;
 end $$;
 
--- 부모: 처리 완료(done) / 거절(rejected, 코인 돌려줌). 아이: 대기 중 요청 취소(canceled, 코인 돌려줌)
+-- 용돈·대신 사주세요(pending): 부모 처리 완료(done) / 거절(rejected, 코인 돌려줌), 아이 취소(canceled, 코인 돌려줌)
+-- 기프티콘은 qc_coupon 을 쓰지만, 예전 앱이 부르는 경우도 맞게 처리 (done=사용 완료, rejected/canceled=환불)
 create or replace function public.qc_decide_request(p_id uuid, p_status text, p_note text)
 returns public.qc_requests
 language plpgsql security definer set search_path = public as $$
@@ -503,7 +519,11 @@ begin
   if not found or not public.qc_is_member(r.space_id) then raise exception '요청을 찾을 수 없어요'; end if;
   if p_status in ('done', 'rejected') and not public.qc_is_parent(r.space_id) then raise exception '부모만 처리할 수 있어요'; end if;
   if p_status not in ('done', 'rejected', 'canceled') then raise exception '알 수 없는 상태'; end if;
-  if r.status <> 'pending' then raise exception '이미 처리된 요청이에요'; end if;
+  if r.kind = 'shop' then
+    if r.status not in ('pending', 'owned', 'using') then raise exception '이미 처리된 쿠폰이에요'; end if;
+  elsif r.status <> 'pending' then
+    raise exception '이미 처리된 요청이에요';
+  end if;
   update public.qc_requests set status = p_status, parent_note = nullif(trim(coalesce(p_note, '')), ''), decided_at = now()
     where id = p_id returning * into r;
   if p_status in ('rejected', 'canceled') then
@@ -512,6 +532,50 @@ begin
     if r.kind = 'shop' and r.item_id is not null then
       update public.qc_shop_items set stock = stock + 1 where id = r.item_id and stock is not null;
     end if;
+  end if;
+  return r;
+end $$;
+
+-- 기프티콘 쿠폰
+--  use    : 아이가 '사용하기' (보유 → 사용 요청), p_note = 언제/어떻게 쓰고 싶은지
+--  unuse  : 사용 요청 취소 (아이) / '다음에' (부모, p_note = 한마디) → 다시 보유
+--  done   : 부모가 사줌 → 사용 완료
+--  refund : 안 쓴 쿠폰 환불 (아이: 보유 중일 때만, 부모: 보유·사용 요청 때) → 코인·재고 돌려줌
+create or replace function public.qc_coupon(p_id uuid, p_action text, p_note text default null)
+returns public.qc_requests
+language plpgsql security definer set search_path = public as $$
+declare r public.qc_requests; v_note text := nullif(trim(coalesce(p_note, '')), ''); parent boolean;
+begin
+  select * into r from public.qc_requests where id = p_id for update;
+  if not found or r.kind <> 'shop' or not public.qc_is_member(r.space_id) then raise exception '쿠폰을 찾을 수 없어요'; end if;
+  parent := public.qc_is_parent(r.space_id);
+  if r.status = 'pending' then r.status := 'using'; end if;   -- 예전 방식 대기 = 사용 요청
+  if p_action = 'use' then
+    if r.status <> 'owned' then raise exception '쓸 수 있는 쿠폰이 아니에요'; end if;
+    update public.qc_requests set status = 'using', use_requested_at = now(), memo = coalesce(v_note, memo), parent_note = null, decided_at = null
+      where id = p_id returning * into r;
+  elsif p_action = 'unuse' then
+    if r.status <> 'using' then raise exception '사용 요청 중인 쿠폰이 아니에요'; end if;
+    -- decided_at: 부모가 '다음에'를 누른 경우만 기록 (아이 본인 취소는 알림 안 보냄)
+    update public.qc_requests set status = 'owned', use_requested_at = null, parent_note = case when parent then v_note end,
+      decided_at = case when parent then now() end
+      where id = p_id returning * into r;
+  elsif p_action = 'done' then
+    if not parent then raise exception '부모만 할 수 있어요'; end if;
+    if r.status not in ('owned', 'using') then raise exception '이미 쓴 쿠폰이에요'; end if;
+    update public.qc_requests set status = 'done', decided_at = now(), parent_note = v_note where id = p_id returning * into r;
+  elsif p_action = 'refund' then
+    if r.status not in ('owned', 'using') then raise exception '환불할 수 없는 쿠폰이에요'; end if;
+    if r.status = 'using' and not parent then raise exception '사용 요청 중에는 먼저 요청을 취소해주세요'; end if;
+    update public.qc_requests set status = case when parent then 'rejected' else 'canceled' end, decided_at = now(), parent_note = v_note
+      where id = p_id returning * into r;
+    insert into public.qc_ledger(space_id, kid_id, amount, reason, ref_type, ref_id)
+      values (r.space_id, r.kid_id, r.coins, '쿠폰 환불 · ' || r.title, 'refund', r.id);
+    if r.item_id is not null then
+      update public.qc_shop_items set stock = stock + 1 where id = r.item_id and stock is not null;
+    end if;
+  else
+    raise exception '알 수 없는 동작';
   end if;
   return r;
 end $$;
@@ -631,6 +695,8 @@ revoke all on function public.qc_claim_quest(uuid, uuid, text) from public, anon
 revoke all on function public.qc_create_request(uuid, text, text, int, uuid, text) from public, anon;
 revoke all on function public.qc_decide_request(uuid, text, text) from public, anon;
 revoke all on function public.qc_adjust(uuid, int, text) from public, anon;
+revoke all on function public.qc_coupon(uuid, text, text) from public, anon;
+grant execute on function public.qc_coupon(uuid, text, text) to authenticated;
 grant execute on function public.qc_create_space(text, text, text, text) to authenticated;
 grant execute on function public.qc_join_space(text, text) to authenticated;
 grant execute on function public.qc_parent_login(uuid, text) to authenticated;

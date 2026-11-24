@@ -26,7 +26,10 @@ const TABS = [
 ];
 
 const pendingSubs = () => state.data.submissions.filter((s) => s.status === 'pending').sort((a, b) => a.created_at.localeCompare(b.created_at));
-const pendingReqs = () => state.data.requests.filter((r) => r.status === 'pending').sort((a, b) => a.created_at.localeCompare(b.created_at));
+/** 부모가 처리할 것: 용돈·대신 사주세요(대기) + 기프티콘 쿠폰 사용 요청 */
+const needsParent = (r) => (r.kind === 'shop' ? r.status === 'using' || r.status === 'pending' : r.status === 'pending');
+const pendingReqs = () => state.data.requests.filter(needsParent)
+  .sort((a, b) => (a.use_requested_at || a.created_at).localeCompare(b.use_requested_at || b.created_at));
 const fullGoals = () => (state.data.goals || []).filter((g) => g.status === 'full');
 const liveGoals = () => (state.data.goals || []).filter((g) => g.status === 'open' || g.status === 'full').sort((a, b) => b.created_at.localeCompare(a.created_at));
 const recentSends = (n = 5) => state.data.ledger.filter((l) => l.ref_type === 'transfer' && l.amount < 0).sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, n);
@@ -76,16 +79,19 @@ function subRow(s) {
     <button class="icon-btn yes" data-act="approve-sub" data-id="${s.id}" aria-label="승인">✓</button></li>`;
 }
 
-const REQ_ACTION = { shop: '기프티콘 보냈어요', cash: '용돈 줬어요', proxy: '대신 사줬어요' };
-const REQ_KIND = { shop: '🎁 기프티콘', cash: '💵 용돈 교환', proxy: '🙏 대신 사주세요' };
+const REQ_ACTION = { shop: '사줬어요', cash: '용돈 줬어요', proxy: '대신 사줬어요' };
+const REQ_KIND = { shop: '🎟️ 쿠폰 사용', cash: '💵 용돈 교환', proxy: '🙏 대신 사주세요' };
 function reqRow(r) {
   const k = kidById(r.kid_id);
+  const shop = r.kind === 'shop';
   return `<li class="p-row req">${avatar(k)}
     <div class="grow"><small>${REQ_KIND[r.kind]}</small><b>${r.kind === 'cash' ? `${won(r.won)} 주기` : `${esc(r.emoji || '')} ${esc(r.title)}`}</b>
-      ${r.memo ? `<small>“${esc(r.memo)}”</small>` : ''}<small>${esc(k?.name)} · ${timeAgo(r.created_at)}</small></div>
+      ${r.memo ? `<small>“${esc(r.memo)}”</small>` : ''}<small>${esc(k?.name)} · ${timeAgo(r.use_requested_at || r.created_at)}</small></div>
     <div class="col">${coin(r.coins, 'sm')}
-      <button class="btn sm primary" data-act="req-done" data-id="${r.id}">${REQ_ACTION[r.kind]}</button>
-      <button class="link danger" data-act="req-reject" data-id="${r.id}">거절(환불)</button></div></li>`;
+      <button class="btn sm primary" data-act="${shop ? 'coupon-done' : 'req-done'}" data-id="${r.id}">${REQ_ACTION[r.kind]}</button>
+      ${shop
+        ? `<button class="link" data-act="coupon-later" data-id="${r.id}">다음에</button><button class="link danger" data-act="coupon-prefund" data-id="${r.id}">환불</button>`
+        : `<button class="link danger" data-act="req-reject" data-id="${r.id}">거절(환불)</button>`}</div></li>`;
 }
 
 function sendRow(l) {
@@ -99,7 +105,7 @@ function kidStat(k) {
   const done = list.filter((x) => x.status === 'approved').length;
   return `<button class="kid-stat" data-act="kid-today" data-id="${k.id}" style="--kc:${esc(k.color)}">
     ${avatar(k, 'lg')}<b>${esc(k.name)}</b>${coin(balanceOf(state.data.ledger, k.id))}
-    <small>오늘 ${done}/${list.length}</small>${progressBar(list.length ? (done / list.length) * 100 : 0)}</button>`;
+    <small>오늘 ${done}/${list.length}${(() => { const n = state.data.requests.filter((r) => r.kid_id === k.id && r.kind === 'shop' && r.status === 'owned').length; return n ? ` · 🎟️ ${n}장` : ''; })()}</small>${progressBar(list.length ? (done / list.length) * 100 : 0)}</button>`;
 }
 
 /* ---------------- 미션 ---------------- */
@@ -400,6 +406,24 @@ export const actions = {
     const note = await confirmDialog({ title: REQ_ACTION[r.kind] + '?', message: `${r.title} — 아이 쿠폰함에 '받았어요'로 표시돼요.`, ok: '완료', input: { placeholder: '아이에게 한마디 (선택)' } });
     if (note == null) return;
     run(() => api.decideRequest(r.id, 'done', note), '처리했어요');
+  },
+  'coupon-done': async (el) => {
+    const r = byId('requests', el.dataset.id);
+    const note = await confirmDialog({ title: `${r.emoji || '🎁'} ${r.title} 사줬어요?`, message: '쿠폰이 "사용 완료"로 바뀌어요.', ok: '사줬어요', input: { placeholder: '아이에게 한마디 (선택)' } });
+    if (note == null) return;
+    run(() => api.coupon(r.id, 'done', note), '사용 완료로 바꿨어요');
+  },
+  'coupon-later': async (el) => {
+    const r = byId('requests', el.dataset.id);
+    const note = await confirmDialog({ title: '다음에 사줄까요?', message: '쿠폰은 아이 쿠폰함에 그대로 남아요.', ok: '다음에', input: { placeholder: '예: 주말에 사줄게 (선택)' } });
+    if (note == null) return;
+    run(() => api.coupon(r.id, 'unuse', note), '아이에게 다음에 쓰자고 알렸어요');
+  },
+  'coupon-prefund': async (el) => {
+    const r = byId('requests', el.dataset.id);
+    const note = await confirmDialog({ title: '쿠폰을 환불할까요?', message: `${fmt(r.coins)}코인을 아이에게 돌려주고 쿠폰은 사라져요.`, ok: '환불', danger: true, input: { placeholder: '이유 (선택)' } });
+    if (note == null) return;
+    run(() => api.coupon(r.id, 'refund', note), '환불하고 코인을 돌려줬어요');
   },
   'req-reject': async (el) => {
     const r = byId('requests', el.dataset.id);

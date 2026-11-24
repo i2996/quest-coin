@@ -11,6 +11,7 @@ import { esc, coin, avatar, kidById, empty, progressBar, CATEGORIES, missionById
 import { openSheet, closeSheet, confirmDialog, toast } from './sheet.js';
 import { coinRain, confetti } from './fx.js';
 import { bellButton, pushBanner } from './notify.js';
+import { submitWith, forgetPhotoOf } from './photos.js';
 
 const TABS = [
   { id: 'missions', label: '미션', ic: '🗡️' },
@@ -71,15 +72,18 @@ const statusBtn = (x) => {
   const key = `${x.m.id}|${x.date}`;
   if (x.status === 'approved') return `<span class="st done">완료 ✓</span>`;
   if (x.status === 'pending') return `<button class="st wait" data-act="unsubmit" data-id="${x.sub.id}">확인 중 ⏳</button>`;
-  return `<button class="btn go" data-act="submit" data-k="${key}">${x.status === 'rejected' ? '다시 했어요' : '다 했어요!'}</button>`;
+  const again = x.status === 'rejected';
+  if (x.m.photo_required) return `<button class="btn go" data-act="photo-submit" data-k="${key}">📷 ${again ? '다시 찍기' : '사진 찍고 완료'}</button>`;
+  return `<div class="go-row"><button class="cam-btn" data-act="photo-submit" data-k="${key}" aria-label="사진 찍고 완료">📷</button><button class="btn go" data-act="submit" data-k="${key}">${again ? '다시 했어요' : '다 했어요!'}</button></div>`;
 };
+const photoNote = (x) => (x.sub?.photo_path && x.status !== 'todo' && x.status !== 'rejected' ? ' · 📷 사진 보냄' : x.m.photo_required && x.status === 'todo' ? ' · 📷 사진 필요' : '');
 
 function missionCard(x) {
   const m = x.m;
   return `<li class="mission ${x.status}">
     <span class="m-emoji">${esc(m.emoji)}</span>
     <div class="m-body"><b>${esc(m.title)}</b>
-      <small>${repeatLabel(m)}${x.dueSoon ? ` · ${shortDate(x.dueSoon)}까지` : ''}${x.status === 'rejected' ? ' · <em class="warn">부모님이 다시 해달래요</em>' : ''}</small>
+      <small>${repeatLabel(m)}${x.dueSoon ? ` · ${shortDate(x.dueSoon)}까지` : ''}${photoNote(x)}${x.status === 'rejected' ? ' · <em class="warn">부모님이 다시 해달래요</em>' : ''}</small>
       ${m.memo ? `<p class="m-memo">${esc(m.memo)}</p>` : ''}</div>
     <div class="m-side">${coin(m.reward)}${statusBtn(x)}</div></li>`;
 }
@@ -89,7 +93,8 @@ function surpriseCard(x) {
   let foot;
   if (x.status === 'approved') foot = '<span class="st done">성공! ✓</span>';
   else if (x.status === 'pending') foot = `<button class="st wait" data-act="unsubmit" data-id="${x.sub.id}">확인 중 ⏳</button>`;
-  else foot = `<button class="btn go hot" data-act="submit" data-k="${m.id}|${x.date}">해냈어요!</button>`;
+  else if (m.photo_required) foot = `<button class="btn go hot" data-act="photo-submit" data-k="${m.id}|${x.date}">📷 사진 찍고 해냈어요!</button>`;
+  else foot = `<div class="go-row"><button class="cam-btn" data-act="photo-submit" data-k="${m.id}|${x.date}" aria-label="사진 찍고 완료">📷</button><button class="btn go hot" data-act="submit" data-k="${m.id}|${x.date}">해냈어요!</button></div>`;
   return `<article class="surprise ${x.status}">
     <div class="s-top"><span class="s-emoji">${esc(m.emoji)}</span>
       <div><b>${esc(m.title)}</b>${m.memo ? `<p>${esc(m.memo)}</p>` : ''}
@@ -327,15 +332,7 @@ function historyList(ledger) {
 }
 
 /* ---------------- 동작 ---------------- */
-async function doSubmit(key) {
-  const [mid, date] = key.split('|');
-  const m = missionById(mid);
-  const r = await run(() => api.submit(mid, who(), date));
-  if (r && r !== true) {
-    if (r.status === 'approved') coinRain(m?.reward || 0, '코인 획득!');
-    else toast('부모님께 확인 요청을 보냈어요 👍', 'ok');
-  }
-}
+const doSubmit = (key) => submitWith(key);
 
 export const actions = {
   'kid-tab': (el) => {
@@ -347,7 +344,9 @@ export const actions = {
   submit: (el) => doSubmit(el.dataset.k),
   unsubmit: async (el) => {
     const ok = await confirmDialog({ title: '완료를 취소할까요?', message: '아직 부모님이 확인하기 전이에요.', ok: '취소하기', cancel: '그대로 두기' });
-    if (ok) run(() => api.unsubmit(el.dataset.id));
+    if (!ok) return;
+    const photo = forgetPhotoOf(el.dataset.id);
+    if ((await run(() => api.unsubmit(el.dataset.id))) && photo) api.removePhoto(photo).catch(() => {});
   },
   'popup-accept': (el) => {
     prefs.markSeen(who(), el.dataset.id);

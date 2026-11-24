@@ -474,3 +474,20 @@ legend { font-size: 15px; padding: 0; margin-bottom: 6px; }
 .push-banner small { display: block; line-height: 1.35; }
 .icon-btn.sm { width: 30px; height: 30px; font-size: 14px; border-radius: 10px; }
 .p-row .switch { flex: none; }
+
+/* ---------- 인증 사진 ---------- */
+.go-row { display: flex; align-items: center; gap: 6px; }
+.cam-btn { border: 0; width: 38px; height: 38px; border-radius: 12px; background: var(--ok-soft); font-size: 18px; flex: none; }
+.thumb { border: 0; padding: 0; width: 46px; height: 46px; border-radius: 10px; overflow: hidden; background: var(--line); flex: none; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb.gone { display: none; }
+.thumb.wide { width: 120px; height: 90px; margin-top: 6px; border-radius: 12px; }
+.photo-big { display: grid; place-items: center; }
+.photo-big img { max-width: 100%; max-height: 72vh; border-radius: 16px; }
+.ps-head { display: flex; align-items: center; gap: 10px; background: var(--paper); border-radius: 16px; padding: 10px 12px; box-shadow: var(--shadow); }
+.ps-head > div { flex: 1; min-width: 0; }
+.ps-head b { display: block; font-size: 17px; }
+.photo-pick { position: relative; display: grid !important; place-items: center; min-height: 220px; border: 3px dashed var(--line); border-radius: 18px; background: var(--paper); cursor: pointer; overflow: hidden; }
+.ps-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 44px; text-align: center; }
+.ps-empty b { font-size: 18px; }
+.ps-preview { width: 100%; max-height: 50vh; object-fit: contain; display: block; }

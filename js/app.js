@@ -9,6 +9,7 @@ import * as gate from './ui/gate.js';
 import * as kid from './ui/kid.js';
 import * as parent from './ui/parent.js';
 import * as notify from './ui/notify.js';
+import * as photos from './ui/photos.js';
 import { closeSheet, toast } from './ui/sheet.js';
 import { coinRain } from './ui/fx.js';
 
@@ -16,14 +17,14 @@ const root = document.getElementById('root');
 const popupRoot = document.getElementById('popup-root');
 
 const actions = {
-  ...gate.actions, ...kid.actions, ...parent.actions, ...notify.actions,
+  ...gate.actions, ...kid.actions, ...parent.actions, ...notify.actions, ...photos.actions,
   'sheet-close': () => closeSheet(),
   'switch-who': () => {
     prefs.setWho(null);
     set();
   },
 };
-const forms = { ...gate.forms, ...kid.forms, ...parent.forms };
+const forms = { ...gate.forms, ...kid.forms, ...parent.forms, ...photos.forms };
 
 function view() {
   if (!state.data) return gate.renderStart();
@@ -52,6 +53,7 @@ function render() {
   document.body.classList.toggle('popup-on', !!popupRoot.innerHTML);
   celebrateGain(w);
   notify.syncPush();
+  photos.hydratePhotos(root);
   window.__appReady = true;
 }
 

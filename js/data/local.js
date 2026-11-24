@@ -134,7 +134,7 @@ export async function remove(kind, id) {
   write();
 }
 
-export async function submit(missionId, kidId, date) {
+export async function submit(missionId, kidId, date, photo = null) {
   const d = S();
   const m = find('missions', missionId) || fail('미션을 찾을 수 없어요');
   if (m.kid_ids.length && !m.kid_ids.includes(kidId)) fail('이 아이의 미션이 아니에요');
@@ -144,14 +144,16 @@ export async function submit(missionId, kidId, date) {
     if (m.first_come && d.submissions.some((s) => s.mission_id === m.id && s.kid_id !== kidId && s.status !== 'rejected'))
       fail('아쉽게도 다른 친구가 먼저 해냈어요!');
   }
-  const st = d.space.auto_approve ? 'approved' : 'pending';
+  if (m.photo_required && !photo) fail('사진을 찍어서 보내주세요 📷');
+  // 사진이 있으면 자동 적립이어도 부모님이 사진을 보고 확인
+  const st = d.space.auto_approve && !photo ? 'approved' : 'pending';
   let s = d.submissions.find((x) => x.mission_id === m.id && x.kid_id === kidId && x.occurrence_date === date);
   if (s && s.status !== 'rejected') fail('이미 완료한 미션이에요');
   if (!s) {
     s = { id: uid(), space_id: d.space.id, mission_id: m.id, kid_id: kidId, occurrence_date: date };
     d.submissions.push(s);
   }
-  Object.assign(s, { status: st, reward: m.reward, created_at: now(), decided_at: st === 'approved' ? now() : null });
+  Object.assign(s, { status: st, reward: m.reward, created_at: now(), decided_at: st === 'approved' ? now() : null, photo_path: photo });
   if (st === 'approved' && m.reward > 0) addLedger(kidId, m.reward, m.title, 'submission', s.id);
   write();
   return s;
@@ -334,3 +336,30 @@ export function wipe() {
 // 체험 모드: 서버가 없어서 실제 알림은 보내지 않음 (이 기기 테스트 알림만)
 export async function savePush() {}
 export async function deletePush() {}
+
+// 체험 모드 인증 사진: 작게 줄인 사진을 이 기기에 저장 (최근 20장만)
+export async function uploadPhoto(_s, kidId, blob) {
+  const d = S();
+  const url = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(new Error('사진을 읽지 못했어요'));
+    fr.readAsDataURL(blob);
+  });
+  const path = `demo/${kidId}/${uid()}.jpg`;
+  d.photos = d.photos || {};
+  d.photos[path] = url;
+  const keys = Object.keys(d.photos);
+  if (keys.length > 20) keys.slice(0, keys.length - 20).forEach((k) => delete d.photos[k]);
+  write();
+  return path;
+}
+export async function photoUrls(paths) {
+  const ph = S().photos || {};
+  return Object.fromEntries(paths.filter((p) => ph[p]).map((p) => [p, ph[p]]));
+}
+export async function removePhoto(path) {
+  const d = S();
+  if (d.photos) delete d.photos[path];
+  write();
+}

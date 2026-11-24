@@ -90,7 +90,28 @@ export async function save(kind, row) {
 }
 export const remove = async (kind, id) => unwrap(await db().from(TABLES[kind]).delete().eq('id', id));
 
-export const submit = (missionId, kidId, date) => rpc('qc_submit', { p_mission_id: missionId, p_kid_id: kidId, p_date: date });
+export const submit = (missionId, kidId, date, photo = null) =>
+  rpc('qc_submit', { p_mission_id: missionId, p_kid_id: kidId, p_date: date, p_photo: photo });
+
+// 인증 사진: Storage 'qc-photos' (비공개). 경로 = <공간 id>/<아이 id>/<무작위>.jpg
+const BUCKET = 'qc-photos';
+export async function uploadPhoto(spaceId, kidId, blob) {
+  const path = `${spaceId}/${kidId}/${crypto.randomUUID()}.jpg`;
+  const { error } = await db().storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+  if (error) {
+    if (/bucket not found/i.test(error.message || '')) throw new Error('사진 저장소가 아직 없어요. Supabase SQL Editor 에서 supabase/schema.sql 을 다시 실행해주세요.');
+    throw new Error('사진을 올리지 못했어요: ' + (error.message || error));
+  }
+  return path;
+}
+/** { 경로: 1시간짜리 보기 주소 } */
+export async function photoUrls(paths) {
+  if (!paths.length) return {};
+  const { data, error } = await db().storage.from(BUCKET).createSignedUrls(paths, 3600);
+  if (error) throw new Error(error.message);
+  return Object.fromEntries((data || []).filter((x) => x.signedUrl).map((x) => [x.path, x.signedUrl]));
+}
+export const removePhoto = async (path) => { await db().storage.from(BUCKET).remove([path]); };
 export const unsubmit = (id) => rpc('qc_unsubmit', { p_id: id });
 export const decideSubmission = (id, approve) => rpc('qc_decide_submission', { p_id: id, p_approve: approve });
 export const completeFor = (missionId, kidId, date) => rpc('qc_complete_for', { p_mission_id: missionId, p_kid_id: kidId, p_date: date });

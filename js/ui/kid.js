@@ -357,7 +357,7 @@ function pastCoupon(r) {
       ${r.kind === 'cash' ? `<small>${won(r.won)}</small>` : ''}
       ${r.parent_note ? `<small class="note">부모님: ${esc(r.parent_note)}</small>` : ''}
       <small class="muted">${timeAgo(r.decided_at || r.created_at)}</small></div>
-    <div class="c-right">${coin(r.coins, 'sm')}${used ? '<span class="used-stamp">USED</span>' : `<span class="st ${st.cls}">${st.label}</span>`}</div>
+    <div class="c-right">${coin(r.coins, 'sm')}${used ? '<span class="used-stamp">사용완료</span>' : `<span class="st ${st.cls}">${st.label}</span>`}</div>
   </article>`;
 }
 

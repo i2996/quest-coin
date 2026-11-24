@@ -135,6 +135,31 @@ export function explainTest(r, kidName = (id) => id) {
   return lines.join('\n');
 }
 
+/** 이 폰 쪽 점검 결과 설명 (순수 함수) */
+export function explainDevice({ serverOk, received, seconds, swVer, latest, ios, standalone }) {
+  const lines = [];
+  if (swVer && latest && swVer !== latest) {
+    lines.push(`⚠️ 이 폰의 알림 처리기가 옛 버전이에요 (${swVer}, 최신 ${latest}). 앱을 완전히 닫았다가(위로 밀어 끄기) 다시 열어주세요.`);
+  }
+  if (!serverOk) return lines.join('\n');
+  if (received && received.error && !/\/ /.test(received.error)) {
+    lines.push(`📱 이 폰이 ${seconds}초 만에 서버 알림을 받았어요. (추가 옵션 없이 다시 띄웠어요)`);
+  } else if (received && received.error) {
+    lines.push(`📱 이 폰이 서버 알림을 받았지만 화면에 띄우지 못했어요: ${received.error.slice(0, 120)}`);
+  } else if (received) {
+    lines.push(`📱 이 폰이 ${seconds}초 만에 서버 알림을 받아서 화면에 띄웠어요.`);
+    lines.push(ios
+      ? '그런데도 안 보였다면: 아이폰 설정 → 알림 → 퀘스트 코인 → 알림 허용·배너 켜기, 그리고 집중 모드(방해 금지)를 확인해주세요.'
+      : '그런데도 안 보였다면: 폰 설정 → 알림 → 크롬(또는 퀘스트 코인) 알림 허용, 방해 금지 모드를 확인해주세요.');
+  } else {
+    lines.push('📱 10초 안에 이 폰에 서버 알림이 도착하지 않았어요.');
+    if (ios && !standalone) lines.push('아이폰은 홈 화면에 추가한 앱에서 열어야 알림을 받아요.');
+    else if (ios) lines.push('아이폰: 홈 화면의 퀘스트 코인 아이콘을 길게 눌러 삭제 → 사파리에서 다시 "홈 화면에 추가" → 알림 다시 켜기를 해보세요. (예전 구독이 끊긴 경우가 많아요)');
+    else lines.push('알림을 껐다가 다시 켜고, 폰의 절전/배터리 최적화에서 크롬을 제외해 보세요.');
+  }
+  return lines.join('\n');
+}
+
 async function serverTest() {
   if (mode === 'demo') {
     await push.showTest().catch((e) => toast(e.message, 'err'));
@@ -143,16 +168,30 @@ async function serverTest() {
   const w = who();
   const kidName = (id) => state.data.kids.find((k) => k.id === id)?.name || '아이';
   let msg;
+  let endpoint = null;
   try {
     const sub = await push.current();
     if (!sub) throw new Error(REASON.not_registered);
+    endpoint = sub.endpoint;
     await api.savePush(spaceId(), sub, w === 'parent' ? null : w, w === 'parent'); // 지금 쓰는 사람으로 다시 등록
-    toast('알림 서버에 테스트를 요청했어요…');
-    msg = explainTest(await api.serverPushTest(sub.endpoint), kidName);
+    toast('알림 서버에 테스트를 요청했어요… (10초 정도 걸려요)');
+    const since = Date.now();
+    const [swVer, latest] = await Promise.all([push.swVersion(), push.latestVersion()]);
+    const r = await api.serverPushTest(endpoint);
+    const received = r.ok ? await push.waitForPush(since, 10000) : null;
+    msg = explainTest(r, kidName) + '\n\n' + explainDevice({
+      serverOk: !!r.ok, received, seconds: received ? Math.max(1, Math.round((received.at - since) / 1000)) : 0,
+      swVer, latest, ios: push.isIOS(), standalone: push.isStandalone(),
+    });
   } catch (e) {
     msg = '❌ ' + (e.message || e);
   }
-  await confirmDialog({ title: '알림 점검 결과', message: msg, ok: '확인', cancel: '' });
+  const again = await confirmDialog({ title: '알림 점검 결과', message: msg.trim(), ok: '닫기', cancel: endpoint ? '10초 뒤 다시 (앱 닫고 확인)' : '' });
+  if (again === null && endpoint) {
+    // 앱을 닫은 상태(백그라운드)에서도 오는지 확인
+    api.serverPushTest(endpoint, 10).catch(() => {});
+    await confirmDialog({ title: '10초 뒤에 보내요', message: '지금 홈 화면으로 나가서(앱 닫기) 기다려 보세요. "서버 알림 테스트"가 오면 정상이에요.', ok: '알겠어요', cancel: '' });
+  }
 }
 
 export const actions = {

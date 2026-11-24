@@ -135,8 +135,8 @@ export function savePush(spaceId, sub, kidId, isParent) {
 export const deletePush = (endpoint) => rpc('qc_push_delete', { p_endpoint: endpoint });
 
 /** 앱 '테스트' 버튼: 알림 서버가 이 기기로 실제 알림을 보내 보고 결과(+최근 알림 기록)를 돌려줌 */
-export async function serverPushTest(endpoint) {
-  const { data, error } = await db().functions.invoke('qc-notify', { body: { kind: 'test', endpoint } });
+export async function serverPushTest(endpoint, delay = 0) {
+  const { data, error } = await db().functions.invoke('qc-notify', { body: { kind: 'test', endpoint, delay } });
   if (error) {
     const status = error.context?.status;
     if (status === 404) throw new Error('알림 서버(qc-notify)가 아직 배포되지 않았어요. GitHub Actions 의 \'알림 함수 배포\'를 실행해주세요.');

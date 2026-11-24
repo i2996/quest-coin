@@ -74,7 +74,20 @@ Deno.serve(async (req) => {
     };
     const v = vapid();
     if (v) return json({ ok: false, reason: v, ...info });
-    const r = await send(sub, { title: '🔔 서버 알림 테스트', body: '이 알림이 보이면 알림 서버가 잘 동작하는 거예요!', tag: 'server-test' });
+    const payload = { title: '🔔 서버 알림 테스트', body: '이 알림이 보이면 알림 서버가 잘 동작하는 거예요!', tag: 'server-test' };
+    const delay = Math.min(Math.max(Number(ev.delay) || 0, 0), 30);
+    if (delay) {
+      // 앱을 닫고 기다리는 테스트: 바로 대답하고, 뒤에서 delay 초 뒤 보냄
+      const later = (async () => {
+        await new Promise((r) => setTimeout(r, delay * 1000));
+        await send(sub, payload);
+      })();
+      const rt = (globalThis as any).EdgeRuntime;
+      if (rt?.waitUntil) rt.waitUntil(later);
+      else await later;
+      return json({ ok: true, scheduled: delay, ...info });
+    }
+    const r = await send(sub, payload);
     if (!r.ok && (r.status === 404 || r.status === 410)) await db.from('qc_push_subs').delete().eq('endpoint', sub.endpoint);
     return json(r.ok ? { ok: true, ...info } : { ok: false, reason: 'push_failed', status: r.status, error: r.error, ...info });
   }

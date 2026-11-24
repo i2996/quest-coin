@@ -52,3 +52,62 @@ export async function showTest(title = '퀘스트 코인', body = '알림이 잘
   const reg = await registration();
   await reg.showNotification(title, { body, icon: new URL('icons/icon-192.png', document.baseURI).href, tag: 'test' });
 }
+
+/** 지금 이 폰에서 동작 중인 알림 처리기(서비스 워커) 버전. 모르면 null */
+export async function swVersion() {
+  try {
+    const reg = await registration();
+    const sw = reg.active || navigator.serviceWorker.controller;
+    if (!sw) return null;
+    return await new Promise((res) => {
+      const ch = new MessageChannel();
+      const t = setTimeout(() => res(null), 1500);
+      ch.port1.onmessage = (e) => { clearTimeout(t); res(e.data?.version || null); };
+      sw.postMessage({ type: 'qc-version' }, [ch.port2]);
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** 서버에 올라가 있는 최신 버전 (sw.js 안의 VERSION) */
+export async function latestVersion() {
+  try {
+    const t = await (await fetch('sw.js', { cache: 'no-store' })).text();
+    return (t.match(/const VERSION = '([^']+)'/) || [])[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 이 폰이 마지막으로 받은 서버 알림 기록 { at, title, error, version } */
+export async function lastReceived() {
+  try {
+    const r = await (await caches.open('qc-push-log')).match('last');
+    return r ? await r.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** since 이후 서버 알림이 도착하길 ms 동안 기다림 → 기록 또는 null */
+export function waitForPush(since, ms = 10000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      navigator.serviceWorker.removeEventListener('message', onMsg);
+      clearInterval(poll);
+      clearTimeout(timer);
+      resolve(v);
+    };
+    const onMsg = (e) => e.data?.type === 'qc-push' && e.data.at >= since && finish(e.data);
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    const poll = setInterval(async () => {
+      const r = await lastReceived();
+      if (r && r.at >= since) finish(r);
+    }, 1000);
+    const timer = setTimeout(() => finish(null), ms);
+  });
+}

@@ -38,3 +38,9 @@ test('폰 쪽 점검: 도착·미도착·옛 버전', () => {
   assert.match(explainDevice({ serverOk: false, swVer: 'quest-coin-v5', latest: 'quest-coin-v8' }), /옛 버전/);
   assert.equal(explainDevice({ serverOk: false, swVer: 'v8', latest: 'v8' }), '');
 });
+
+test('지난번에 받은 서버 알림 시각 표시', () => {
+  const at = new Date(2026, 10, 24, 17, 45, 10).getTime();
+  assert.match(explainDevice({ serverOk: false, prevLast: { at, title: '🔔 서버 알림 테스트 (10초 뒤)', error: null } }), /마지막으로 받은 서버 알림: 11\/24 17:45:10 "🔔 서버 알림 테스트 \(10초 뒤\)"$/);
+  assert.match(explainDevice({ serverOk: false, prevLast: { at, title: 'x', error: 'a / b' } }), /화면에 띄우지 못함/);
+});

@@ -136,8 +136,13 @@ export function explainTest(r, kidName = (id) => id) {
 }
 
 /** 이 폰 쪽 점검 결과 설명 (순수 함수) */
-export function explainDevice({ serverOk, received, seconds, swVer, latest, ios, standalone }) {
+export function explainDevice({ serverOk, received, seconds, swVer, latest, ios, standalone, prevLast }) {
   const lines = [];
+  if (prevLast) {
+    const t = new Date(prevLast.at);
+    const hm = `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}:${String(t.getSeconds()).padStart(2, '0')}`;
+    lines.push(`📥 이번 점검 전에 이 폰이 마지막으로 받은 서버 알림: ${hm} "${prevLast.title}"${prevLast.error && /\/ /.test(prevLast.error) ? ' (화면에 띄우지 못함)' : ''}`);
+  }
   if (swVer && latest && swVer !== latest) {
     lines.push(`⚠️ 이 폰의 알림 처리기가 옛 버전이에요 (${swVer}, 최신 ${latest}). 앱을 완전히 닫았다가(위로 밀어 끄기) 다시 열어주세요.`);
   }
@@ -176,11 +181,11 @@ async function serverTest() {
     await api.savePush(spaceId(), sub, w === 'parent' ? null : w, w === 'parent'); // 지금 쓰는 사람으로 다시 등록
     toast('알림 서버에 테스트를 요청했어요… (10초 정도 걸려요)');
     const since = Date.now();
-    const [swVer, latest] = await Promise.all([push.swVersion(), push.latestVersion()]);
+    const [swVer, latest, prevLast] = await Promise.all([push.swVersion(), push.latestVersion(), push.lastReceived()]);
     const r = await api.serverPushTest(endpoint);
     const received = r.ok ? await push.waitForPush(since, 10000) : null;
     msg = explainTest(r, kidName) + '\n\n' + explainDevice({
-      serverOk: !!r.ok, received, seconds: received ? Math.max(1, Math.round((received.at - since) / 1000)) : 0,
+      prevLast, serverOk: !!r.ok, received, seconds: received ? Math.max(1, Math.round((received.at - since) / 1000)) : 0,
       swVer, latest, ios: push.isIOS(), standalone: push.isStandalone(),
     });
   } catch (e) {

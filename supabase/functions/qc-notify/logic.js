@@ -40,7 +40,8 @@ export function plan(ev, ctx) {
     const title = `${m.emoji || ''} ${m.title || '심부름'}`.trim();
     const quick = m.kind === 'quick';
     if (r.status === 'pending' && !quick) {
-      push('parents', `✅ ${name(r.kid_id)}: 다 했어요!`, `${title} · 확인해주세요 (+${fmt(r.reward)}코인)`, `sub-${r.id}`);
+      const photo = r.photo_path ? ' · 📷 사진 있음' : '';
+      push('parents', `✅ ${name(r.kid_id)}: 다 했어요!`, `${title} · 확인해주세요 (+${fmt(r.reward)}코인)${photo}`, `sub-${r.id}`);
     } else if (r.status === 'approved' && old == null) {
       if (quick) push(r.kid_id, `🪙 +${fmt(r.reward)}코인!`, `${title} — 고마워요!`, `sub-${r.id}`);
       else push('parents', `✅ ${name(r.kid_id)}: 완료 (자동 적립)`, `${title} · +${fmt(r.reward)}코인`, `sub-${r.id}`);

@@ -6,6 +6,7 @@
 
 **아이 화면 (게임처럼)**
 - 🗡️ **미션**: 오늘의 심부름 → `다 했어요!` → 부모님 승인 → 코인 적립 (승인되면 코인이 쏟아지는 효과)
+- 📷 **사진 인증**: 심부름 완료할 때 사진을 찍어 보내면 부모님이 확인 탭에서 보고 승인. 부모님이 `사진으로 확인`을 켠 심부름은 사진이 있어야 완료돼요 (나머지는 📷 버튼으로 선택). 사진은 자동으로 줄여서(긴 쪽 1280px) 가족만 볼 수 있는 비공개 저장소(Storage `qc-photos`)에 올라가요
 - 🚨 **돌발 미션**: 부모님이 발동하면 아이 화면에 **경고 팝업**이 번쩍! 제한 시간 카운트다운, **선착순 1명** 옵션
 - 🏆 **퀘스트**: `이번 주 심부름 모두 완료` / `이번 달 심부름 30개` 같은 도전 과제. **남은 미션 n개**, D-day, 진행 막대 표시. 깨면 `보상 받기`
 - 🛒 **상점**
@@ -70,7 +71,7 @@ js/data/remote.js                           Supabase (가족 공유)
 js/data/local.js                            체험 모드 (같은 규칙, 이 기기에만 저장)
 js/logic/                                   순수 계산: dates, coins, missions(오늘 할 일·돌발), quests(진행도)
 js/data/push.js                             웹 푸시 구독 (브라우저)
-js/ui/                                      notify(알림 켜기) gate(시작·사용자 선택) kid(아이) parent(부모) sheet fx components
+js/ui/                                      photos(인증 사진) notify(알림 켜기) gate(시작·사용자 선택) kid(아이) parent(부모) sheet fx components
 supabase/schema.sql                         테이블 + RLS + 코인 처리 함수(qc_*) + 실시간 + 알림 트리거
 supabase/functions/qc-notify/               알림 함수 (index.ts: 보내기, logic.js: 누구에게·무슨 문구)
 .github/workflows/deploy-functions.yml      알림 함수 자동 배포 (SUPABASE_ACCESS_TOKEN 필요)
@@ -86,7 +87,7 @@ tests/logic.test.mjs                        로직 테스트
 | `qc_access` | 어떤 기기가 들어왔는지 + 부모 모드(`role=parent`) |
 | `qc_kids` | 아이 (이름, 캐릭터, 색) |
 | `qc_missions` | 심부름(`chore`) / 돌발 미션(`surprise`: 마감 시각, 선착순) |
-| `qc_submissions` | 날짜별 완료 기록 (대기 → 승인/다시 하기) |
+| `qc_submissions` | 날짜별 완료 기록 (대기 → 승인/다시 하기) + 인증 사진 경로 |
 | `qc_quests`, `qc_quest_claims` | 퀘스트, 기간별 보상 받은 기록 |
 | `qc_shop_items` | 기프티콘 상품 (가격, 재고) |
 | `qc_requests` | 코인 사용: 기프티콘(shop) / 용돈(cash) / 부모님께 지불(proxy) |

@@ -63,6 +63,7 @@ create table if not exists public.qc_missions (
 create index if not exists qc_missions_space_idx on public.qc_missions(space_id);
 alter table public.qc_missions drop constraint if exists qc_missions_kind_check;
 alter table public.qc_missions add constraint qc_missions_kind_check check (kind in ('chore', 'surprise', 'quick'));
+alter table public.qc_missions add column if not exists photo_required boolean not null default false;   -- 사진으로 확인
 
 -- 아이가 '다 했어요' 를 누른 기록 (날짜별)
 create table if not exists public.qc_submissions (
@@ -78,6 +79,7 @@ create table if not exists public.qc_submissions (
   unique (mission_id, kid_id, occurrence_date)
 );
 create index if not exists qc_submissions_space_idx on public.qc_submissions(space_id, status);
+alter table public.qc_submissions add column if not exists photo_path text;   -- 인증 사진 (Storage qc-photos 안의 경로)
 
 -- 퀘스트: 주간/월간 미션 모두 완료(all) 또는 심부름 n개(count)
 create table if not exists public.qc_quests (
@@ -308,7 +310,8 @@ begin
 end $$;
 
 -- ---------- 미션 완료 → 승인 → 적립 ----------
-create or replace function public.qc_submit(p_mission_id uuid, p_kid_id uuid, p_date date)
+drop function if exists public.qc_submit(uuid, uuid, date);   -- 사진 인자 추가 전 버전
+create or replace function public.qc_submit(p_mission_id uuid, p_kid_id uuid, p_date date, p_photo text default null)
 returns public.qc_submissions
 language plpgsql security definer set search_path = public as $$
 declare m public.qc_missions; k public.qc_kids; sp public.qc_spaces; r public.qc_submissions; st text;
@@ -327,13 +330,17 @@ begin
       raise exception '아쉽게도 다른 친구가 먼저 해냈어요!';
     end if;
   end if;
+  p_photo := nullif(trim(coalesce(p_photo, '')), '');
+  if m.photo_required and p_photo is null then raise exception '사진을 찍어서 보내주세요 📷'; end if;
+  if p_photo is not null and p_photo not like m.space_id::text || '/%' then raise exception '사진을 다시 올려주세요'; end if;
   select * into sp from public.qc_spaces where id = m.space_id;
-  st := case when sp.auto_approve then 'approved' else 'pending' end;
+  -- 사진이 있으면 자동 적립이어도 부모님이 사진을 보고 확인
+  st := case when sp.auto_approve and p_photo is null then 'approved' else 'pending' end;
 
-  insert into public.qc_submissions(space_id, mission_id, kid_id, occurrence_date, status, reward, decided_at)
-    values (m.space_id, m.id, p_kid_id, p_date, st, m.reward, case when st = 'approved' then now() end)
+  insert into public.qc_submissions(space_id, mission_id, kid_id, occurrence_date, status, reward, decided_at, photo_path)
+    values (m.space_id, m.id, p_kid_id, p_date, st, m.reward, case when st = 'approved' then now() end, p_photo)
   on conflict (mission_id, kid_id, occurrence_date) do update
-    set status = excluded.status, reward = excluded.reward, created_at = now(), decided_at = excluded.decided_at
+    set status = excluded.status, reward = excluded.reward, created_at = now(), decided_at = excluded.decided_at, photo_path = excluded.photo_path
     where public.qc_submissions.status = 'rejected'
   returning * into r;
   if r.id is null then raise exception '이미 완료한 미션이에요'; end if;
@@ -615,7 +622,7 @@ revoke all on function public.qc_parent_login(uuid, text) from public, anon;
 revoke all on function public.qc_parent_logout(uuid) from public, anon;
 revoke all on function public.qc_my_role(uuid) from public, anon;
 revoke all on function public.qc_change_secret(uuid, text, text) from public, anon;
-revoke all on function public.qc_submit(uuid, uuid, date) from public, anon;
+revoke all on function public.qc_submit(uuid, uuid, date, text) from public, anon;
 revoke all on function public.qc_unsubmit(uuid) from public, anon;
 revoke all on function public.qc_decide_submission(uuid, boolean) from public, anon;
 revoke all on function public.qc_complete_for(uuid, uuid, date) from public, anon;
@@ -630,7 +637,7 @@ grant execute on function public.qc_parent_login(uuid, text) to authenticated;
 grant execute on function public.qc_parent_logout(uuid) to authenticated;
 grant execute on function public.qc_my_role(uuid) to authenticated;
 grant execute on function public.qc_change_secret(uuid, text, text) to authenticated;
-grant execute on function public.qc_submit(uuid, uuid, date) to authenticated;
+grant execute on function public.qc_submit(uuid, uuid, date, text) to authenticated;
 grant execute on function public.qc_unsubmit(uuid) to authenticated;
 grant execute on function public.qc_decide_submission(uuid, boolean) to authenticated;
 grant execute on function public.qc_complete_for(uuid, uuid, date) to authenticated;
@@ -777,3 +784,32 @@ create trigger qc_notify_ledger after insert on public.qc_ledger
 drop trigger if exists qc_notify_goals on public.qc_goals;
 create trigger qc_notify_goals after update of status on public.qc_goals
   for each row when (new.status in ('full', 'done')) execute function public.qc_notify_trigger('goal');
+
+-- ============================================================
+-- 인증 사진 (Supabase Storage 'qc-photos' 버킷, 비공개)
+--  경로: <가족 공간 id>/<아이 id>/<무작위>.jpg — 같은 가족만 보고 올릴 수 있어요.
+-- ============================================================
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  values ('qc-photos', 'qc-photos', false, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+  on conflict (id) do nothing;
+
+create or replace function public.qc_photo_member(p_name text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select case when split_part(p_name, '/', 1) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              then public.qc_is_member(split_part(p_name, '/', 1)::uuid) else false end;
+$$;
+
+do $$
+begin
+  drop policy if exists qc_photos_read on storage.objects;
+  create policy qc_photos_read on storage.objects for select to authenticated
+    using (bucket_id = 'qc-photos' and public.qc_photo_member(name));
+  drop policy if exists qc_photos_insert on storage.objects;
+  create policy qc_photos_insert on storage.objects for insert to authenticated
+    with check (bucket_id = 'qc-photos' and public.qc_photo_member(name));
+  drop policy if exists qc_photos_delete on storage.objects;
+  create policy qc_photos_delete on storage.objects for delete to authenticated
+    using (bucket_id = 'qc-photos' and public.qc_photo_member(name));
+exception when insufficient_privilege then
+  raise warning '사진 저장소 권한을 만들지 못했어요. Supabase 대시보드 Storage → Policies 에서 확인이 필요해요.';
+end $$;

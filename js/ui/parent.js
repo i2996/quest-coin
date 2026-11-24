@@ -15,6 +15,7 @@ import {
 import { openSheet, closeSheet, confirmDialog, toast } from './sheet.js';
 import { confetti } from './fx.js';
 import { pushBanner, pushSettingRow } from './notify.js';
+import { photoThumb } from './photos.js';
 
 const TABS = [
   { id: 'check', label: '확인', ic: '✅' },
@@ -68,7 +69,8 @@ function subRow(s) {
   const m = missionById(s.mission_id);
   return `<li class="p-row">${avatar(k)}
     <div class="grow"><b>${esc(m?.emoji || '')} ${esc(m?.title || '삭제된 미션')}</b>
-      <small>${esc(k?.name)} · ${m?.kind === 'surprise' ? '⚡돌발 · ' : ''}${dateLabel(s.occurrence_date)} · ${timeAgo(s.created_at)}</small></div>
+      <small>${esc(k?.name)} · ${m?.kind === 'surprise' ? '⚡돌발 · ' : ''}${dateLabel(s.occurrence_date)} · ${timeAgo(s.created_at)}</small>
+      ${photoThumb(s.photo_path, 'thumb wide')}</div>
     ${coin(s.reward, 'sm')}
     <button class="icon-btn no" data-act="reject-sub" data-id="${s.id}" aria-label="다시 하기">✕</button>
     <button class="icon-btn yes" data-act="approve-sub" data-id="${s.id}" aria-label="승인">✓</button></li>`;
@@ -222,6 +224,7 @@ function choreSheet(m = null) {
       </fieldset>
       <fieldset><legend>누가</legend>${kidPicker('kid_ids', v.kid_ids)}</fieldset>
       <label>설명 <small>(선택)</small><textarea name="memo" rows="2" maxlength="200">${esc(v.memo || '')}</textarea></label>
+      <label class="switch"><input type="checkbox" name="photo_required" ${v.photo_required ? 'checked' : ''}><span>📷 사진으로 확인 (사진을 보내야 완료)</span></label>
       ${m ? `<label class="switch"><input type="checkbox" name="active" ${v.active ? 'checked' : ''}><span>사용 중</span></label>` : ''}
       ${m ? '<button type="button" class="btn" data-act="do-for" data-id="' + m.id + '">아이 대신 오늘 완료 처리…</button>' : ''}
       <div class="form-actions">${delBtn('del-chore', m?.id)}<button class="btn primary big">저장</button></div>
@@ -252,7 +255,8 @@ function surpriseSheet() {
       <fieldset><legend>제한 시간</legend>
         <div class="seg small wrap">${[['10', '10분'], ['30', '30분'], ['60', '1시간'], ['180', '3시간'], ['eod', '오늘 안에']].map(([id, l], i) => `<label><input type="radio" name="limit" value="${id}" ${i === 2 ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
       <fieldset><legend>누가</legend>${kidPicker('kid_ids', [])}
-        <label class="switch"><input type="checkbox" name="first_come"><span>선착순 1명만 (먼저 한 사람이 보상)</span></label></fieldset>
+        <label class="switch"><input type="checkbox" name="first_come"><span>선착순 1명만 (먼저 한 사람이 보상)</span></label>
+        <label class="switch"><input type="checkbox" name="photo_required"><span>📷 사진으로 확인</span></label></fieldset>
       <label>설명 <small>(선택)</small><textarea name="memo" rows="2" maxlength="200"></textarea></label>
       <button class="btn hot big">발동! 🚨</button></form>`,
   });
@@ -533,7 +537,7 @@ export const forms = {
     const row = {
       kind: 'chore', title: d.title.trim(), emoji: d.emoji, reward: num(d.reward), memo: d.memo.trim() || null,
       repeat: d.repeat, repeat_days: d.repeat === 'weekly' ? days : [], due_date: d.repeat === 'none' ? d.due_date || null : null,
-      kid_ids: d.kid_ids || [],
+      kid_ids: d.kid_ids || [], photo_required: !!d.photo_required,
     };
     if (d.id) {
       row.id = d.id;
@@ -553,7 +557,7 @@ export const forms = {
     } else exp = new Date(Date.now() + Number(d.limit) * 60000);
     const row = {
       space_id: spaceId(), kind: 'surprise', title: d.title.trim(), emoji: d.emoji, reward: num(d.reward), memo: d.memo.trim() || null,
-      kid_ids: d.kid_ids || [], first_come: !!d.first_come, expires_at: exp.toISOString(), start_date: today(), repeat: 'none',
+      kid_ids: d.kid_ids || [], first_come: !!d.first_come, photo_required: !!d.photo_required, expires_at: exp.toISOString(), start_date: today(), repeat: 'none',
     };
     if (await run(() => api.save('missions', row))) {
       closeSheet();

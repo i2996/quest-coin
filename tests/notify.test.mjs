@@ -30,6 +30,8 @@ test('완료 흐름: 대기 → 부모 / 승인·다시 하기 → 아이 / 자�
   let m = plan({ kind: 'submission', row: { ...s, status: 'pending' } }, { kids, mission });
   assert.deepEqual(to(m), ['parents']);
   assert.match(m[0].title, /하늘/);
+  assert.doesNotMatch(m[0].body, /사진/);
+  assert.match(plan({ kind: 'submission', row: { ...s, status: 'pending', photo_path: 'sp/a/x.jpg' } }, { kids, mission })[0].body, /📷 사진 있음/);
   assert.deepEqual(to(plan({ kind: 'submission', row: { ...s, status: 'approved' }, old_status: 'pending' }, { kids, mission })), ['a']);
   assert.deepEqual(to(plan({ kind: 'submission', row: { ...s, status: 'rejected' }, old_status: 'pending' }, { kids, mission })), ['a']);
   m = plan({ kind: 'submission', row: { ...s, status: 'approved' }, old_status: null }, { kids, mission });

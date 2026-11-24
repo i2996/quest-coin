@@ -80,7 +80,12 @@ Deno.serve(async (req) => {
       // 앱을 닫고 기다리는 테스트: 바로 대답하고, 뒤에서 delay 초 뒤 보냄
       const later = (async () => {
         await new Promise((r) => setTimeout(r, delay * 1000));
-        await send(sub, payload);
+        const r = await send(sub, { ...payload, title: `🔔 서버 알림 테스트 (${delay}초 뒤)` });
+        // 다음 점검 때 '보냈는지'를 확인할 수 있게 기록
+        await db.from('qc_notify_log').insert({
+          space_id: sub.space_id, kind: 'test', title: `🔔 ${delay}초 뒤 테스트`, sent: r.ok ? 1 : 0,
+          note: r.ok ? 'ok' : `실패 ${r.status} ${r.error}`.slice(0, 300),
+        });
       })();
       const rt = (globalThis as any).EdgeRuntime;
       if (rt?.waitUntil) rt.waitUntil(later);

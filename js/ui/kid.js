@@ -350,7 +350,9 @@ function waitingCoupon(r) {
 function pastCoupon(r) {
   const used = r.kind === 'shop' && r.status === 'done';
   const st = used ? { label: '사용 완료', cls: 'done' } : r.kind === 'shop' && ['rejected', 'canceled'].includes(r.status)
-    ? { label: '환불 · 코인 돌려받음', cls: 'no' } : REQ_STATUS[r.status] || { label: r.status, cls: 'no' };
+    ? { label: '환불 · 코인 돌려받음', cls: 'no' }
+    : r.kind === 'proxy' && r.status === 'done' ? { label: '구매 완료', cls: 'done' }   // 부모님께 부탁: 부모님이 사주심
+    : REQ_STATUS[r.status] || { label: r.status, cls: 'no' };
   return `<article class="coupon ${r.kind} ${st.cls} past">
     ${couponHead(r)}
     <div class="c-main"><small>${r.kind === 'shop' ? '기프티콘' : REQ_KIND[r.kind]}</small><b>${esc(r.title)}</b>

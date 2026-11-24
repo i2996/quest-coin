@@ -137,3 +137,38 @@ export function waitForPush(since, ms = 10000) {
     const timer = setTimeout(() => finish(null), ms);
   });
 }
+
+/** 이 폰이 말해주는 알림 상태 (문제 생겼을 때 캡처용). 각 항목은 2~3초 안에 끝남 */
+export async function deviceStatus() {
+  const ua = navigator.userAgent;
+  const browser = (ua.match(/SamsungBrowser\/[\d.]+/) || ua.match(/(?:CriOS|Chrome)\/\d+/) || ua.match(/Version\/[\d.]+.*Safari/) || ['?'])[0];
+  const q = async (desc) => {
+    try {
+      return (await withTimeout(navigator.permissions.query(desc), 2000, 't', 't')).state;
+    } catch {
+      return '?';
+    }
+  };
+  const lines = [];
+  lines.push(`브라우저: ${browser} · 홈 화면 앱: ${isStandalone() ? '예' : '아니오'}`);
+  lines.push(`알림 권한: ${supported() ? Notification.permission : '지원 안 함'} / ${await q({ name: 'notifications' })} / 푸시 ${await q({ name: 'push', userVisibleOnly: true })}`);
+  let reg = null;
+  try {
+    reg = await withTimeout(navigator.serviceWorker.getRegistration(), 2000, 't', 't');
+  } catch { /* 없음 */ }
+  const ver = reg ? await swVersion().catch(() => null) : null;
+  lines.push(`알림 처리기: ${reg ? (reg.active ? '작동 중' : '준비 중') : '없음'}${ver ? ` (${ver})` : ''} · 앱 제어: ${navigator.serviceWorker?.controller ? '예' : '아니오'}`);
+  if (reg && 'pushManager' in reg) {
+    let sub = '?';
+    try {
+      const s = await withTimeout(reg.pushManager.getSubscription(), 3000, 't', 't');
+      sub = s ? `있음 (${new URL(s.endpoint).hostname})` : '없음';
+    } catch {
+      sub = '확인 안 됨(응답 없음)';
+    }
+    lines.push(`이 폰 구독: ${sub}`);
+  }
+  const last = await lastReceived();
+  if (last) lines.push(`마지막 받은 서버 알림: ${new Date(last.at).toLocaleString('ko-KR')}`);
+  return lines.join('\n');
+}

@@ -1,6 +1,6 @@
 // 서비스 워커: 앱 파일을 캐시해서 설치/빠른 실행 지원. Supabase 통신은 가로채지 않음.
 // 앱 파일을 바꾸면 VERSION 을 꼭 올려주세요 (안 올리면 폰에 반영되지 않아요).
-const VERSION = 'quest-coin-v13';
+const VERSION = 'quest-coin-v14';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css', 'icons/icon.svg', 'icons/icon-192.png',
   'js/app.js','js/config.js','js/core.js','js/prefs.js','js/state.js','js/data/api.js','js/data/remote.js','js/data/push.js','js/ui/notify.js','js/ui/photos.js','js/data/local.js','js/logic/dates.js','js/logic/coins.js','js/logic/missions.js','js/logic/quests.js','js/ui/components.js','js/ui/sheet.js','js/ui/fx.js','js/ui/gate.js','js/ui/kid.js','js/ui/parent.js',

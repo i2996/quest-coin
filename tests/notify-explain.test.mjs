@@ -26,3 +26,15 @@ test('실패 원인 설명', () => {
   assert.match(explainTest({ ok: false, reason: 'push_failed', status: 403, error: 'VapidPkHashMismatch' }, name), /한 쌍이 아니에요/);
   assert.match(explainTest({ ok: true, log: [] }, name), /아직 없어요/);
 });
+
+import { explainDevice } from '../js/ui/notify.js';
+
+test('폰 쪽 점검: 도착·미도착·옛 버전', () => {
+  assert.match(explainDevice({ serverOk: true, received: { at: 1, error: null }, seconds: 2, ios: true }), /2초 만에 .* 띄웠어요[\s\S]*집중 모드/);
+  assert.match(explainDevice({ serverOk: true, received: { at: 1, error: 'TypeError: renotify' }, seconds: 1 }), /추가 옵션 없이 다시 띄웠어요/);
+  assert.match(explainDevice({ serverOk: true, received: { at: 1, error: 'a / b' }, seconds: 1 }), /띄우지 못했어요/);
+  assert.match(explainDevice({ serverOk: true, received: null, ios: true, standalone: true }), /도착하지 않았어요[\s\S]*홈 화면에 추가/);
+  assert.match(explainDevice({ serverOk: true, received: null, ios: true, standalone: false }), /홈 화면에 추가한 앱에서/);
+  assert.match(explainDevice({ serverOk: false, swVer: 'quest-coin-v5', latest: 'quest-coin-v8' }), /옛 버전/);
+  assert.equal(explainDevice({ serverOk: false, swVer: 'v8', latest: 'v8' }), '');
+});

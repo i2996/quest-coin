@@ -403,7 +403,7 @@ export const actions = {
   },
   'req-done': async (el) => {
     const r = byId('requests', el.dataset.id);
-    const note = await confirmDialog({ title: REQ_ACTION[r.kind] + '?', message: `${r.title} — 아이 쿠폰함에 '받았어요'로 표시돼요.`, ok: '완료', input: { placeholder: '아이에게 한마디 (선택)' } });
+    const note = await confirmDialog({ title: REQ_ACTION[r.kind] + '?', message: `${r.title} — 아이 쿠폰함에 '${r.kind === 'proxy' ? '구매 완료' : '받았어요'}'로 표시돼요.`, ok: '완료', input: { placeholder: '아이에게 한마디 (선택)' } });
     if (note == null) return;
     run(() => api.decideRequest(r.id, 'done', note), '처리했어요');
   },

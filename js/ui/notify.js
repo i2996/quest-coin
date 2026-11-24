@@ -85,11 +85,15 @@ export async function syncPush() {
 }
 
 let turningOn = false;
+let onStep = '';
 async function turnOn() {
-  if (turningOn) return toast('알림 켜는 중이에요… 잠시만요');
+  if (turningOn) return toast(`알림 켜는 중이에요… (${onStep || '준비'})`);
   turningOn = true;
+  onStep = '';
   try {
-    await turnOnInner();
+    // 어느 단계에서든 70초 넘게 멈추면 끝내고, 멈춘 단계를 알려줌
+    await push.withTimeout(turnOnInner(), 70000, '알림 켜기가 너무 오래 걸려요.', 'all_timeout').catch((e) =>
+      confirmDialog({ title: '알림을 켜지 못했어요', message: `${e.message}\n멈춘 단계: ${onStep || '시작'}\n\n앱을 완전히 닫았다가 다시 열고 한 번 더 눌러주세요.`, ok: '알겠어요', cancel: '' }));
   } finally {
     turningOn = false;
   }
@@ -104,10 +108,13 @@ async function turnOnInner() {
   try {
     if (mode === 'demo') {
       // 체험 모드: 서버가 없으니 허용만 받고 테스트 알림
+      onStep = '알림 허용 묻기';
       await push.askPermission();
     } else {
-      const sub = await push.subscribe();
-      await api.savePush(spaceId(), sub, w === 'parent' ? null : w, w === 'parent');
+      const sub = await push.subscribe({ onStep: (n) => (onStep = n) });
+      onStep = '가족 서버에 저장';
+      await push.withTimeout(api.savePush(spaceId(), sub, w === 'parent' ? null : w, w === 'parent'), 15000,
+        '가족 서버에 저장하지 못했어요 (응답 없음). 인터넷 연결을 확인해주세요.', 'save_timeout');
     }
     prefs.setPushOn(true);
     synced = `${spaceId()}|${w}|${state.data.role}`;
@@ -119,10 +126,11 @@ async function turnOnInner() {
     if (e.code === 'sub_timeout') e.message = '알림 서버 연결(구독)이 응답하지 않아요. 인터넷 연결을 확인하고, 앱을 완전히 닫았다가 다시 열어 한 번 더 눌러주세요.';
     return confirmDialog({
       title: '알림을 켜지 못했어요',
-      message: `${e.message || e}\n\n${denied ? '이 폰에서 알림을 허용하는 방법:\n' + deviceGuide() : '앱을 완전히 닫았다가 다시 열고 한 번 더 눌러주세요.'}`,
+      message: `${e.message || e}\n멈춘 단계: ${onStep || '시작'}\n\n${denied ? '이 폰에서 알림을 허용하는 방법:\n' + deviceGuide() : '앱을 완전히 닫았다가 다시 열고 한 번 더 눌러주세요.'}`,
       ok: '알겠어요', cancel: '',
     });
   }
+  onStep = '테스트 알림';
   try {
     await push.showTest('🔔 알림이 켜졌어요', w === 'parent' ? '아이 소식을 이 폰으로 알려드릴게요' : '심부름이 생기면 바로 알려줄게요!');
   } catch { /* 켜기는 성공. 테스트 알림만 못 띄움 */ }

@@ -1,6 +1,6 @@
 // 서비스 워커: 앱 파일을 캐시해서 설치/빠른 실행 지원. Supabase 통신은 가로채지 않음.
 // 앱 파일을 바꾸면 VERSION 을 꼭 올려주세요 (안 올리면 폰에 반영되지 않아요).
-const VERSION = 'quest-coin-v9';
+const VERSION = 'quest-coin-v10';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css', 'icons/icon.svg', 'icons/icon-192.png',
   'js/app.js','js/config.js','js/core.js','js/prefs.js','js/state.js','js/data/api.js','js/data/remote.js','js/data/push.js','js/ui/notify.js','js/ui/photos.js','js/data/local.js','js/logic/dates.js','js/logic/coins.js','js/logic/missions.js','js/logic/quests.js','js/ui/components.js','js/ui/sheet.js','js/ui/fx.js','js/ui/gate.js','js/ui/kid.js','js/ui/parent.js',
@@ -61,15 +61,10 @@ self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
     let error = null;
     try {
-      await self.registration.showNotification(title, {
-        ...basic,
-        badge: icon,
-        renotify: !!data.tag,
-        requireInteraction: !!data.urgent, // 돌발 미션은 누를 때까지 남아 있게
-        vibrate: data.urgent ? [200, 100, 200, 100, 400] : [120],
-      });
+      // '우리 가족' 앱과 똑같은 옵션만 씀 (삼성 인터넷에서 진동·재알림 같은 추가 옵션을 쓰면 알림이 안 뜨는 경우가 있었음)
+      await self.registration.showNotification(title, { ...basic, badge: icon });
     } catch (e) {
-      // 일부 폰(아이폰 등)은 추가 옵션을 받지 않음 → 기본 옵션으로 다시
+      // 그래도 안 되면 배지 없이 다시
       error = String((e && e.message) || e);
       try {
         await self.registration.showNotification(title, basic);

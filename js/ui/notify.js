@@ -13,10 +13,27 @@ export function pushState() {
   return prefs.pushOn() && push.permission() === 'granted' ? 'on' : 'off';
 }
 
+/** 이 폰/브라우저에 맞는 알림 허용 방법 (순수 함수) */
+export function deviceGuide(ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '')) {
+  if (/SamsungBrowser/i.test(ua)) {
+    return '① 삼성 인터넷 → 메뉴(≡) → 설정 → 사이트 및 다운로드 → 알림 → 이 사이트(i2996.github.io) "허용"\n'
+      + '② 폰 설정 → 애플리케이션 → 퀘스트코인(없으면 삼성 인터넷) → 알림 → "알림 허용" 켜기\n'
+      + '③ 그래도 안 되면: 홈 화면의 퀘스트코인 아이콘 삭제 → 삼성 인터넷에서 다시 "홈 화면에 추가" → 아이콘으로 열어서 알림 켜기';
+  }
+  if (/iPhone|iPad|iPod|Macintosh/i.test(ua)) {
+    return '① 사파리 공유 버튼(□↑) → "홈 화면에 추가" 한 앱으로 열기\n② 아이폰 설정 → 알림 → 퀘스트 코인 → 알림 허용';
+  }
+  if (/Android/i.test(ua)) {
+    return '① 크롬 → 메뉴(⋮) → 설정 → 사이트 설정 → 알림 → 이 사이트(i2996.github.io) "허용"\n'
+      + '② 폰 설정 → 애플리케이션 → 퀘스트코인(없으면 Chrome) → 알림 → "알림 허용" 켜기';
+  }
+  return '브라우저 설정의 사이트 권한에서 이 사이트(i2996.github.io)의 알림을 허용해주세요.';
+}
+
 const HELP = {
   'ios-install': '아이폰은 사파리 아래 공유 버튼(□↑) → "홈 화면에 추가" 한 뒤, 홈 화면의 퀘스트 코인 앱에서 알림을 켤 수 있어요.',
-  unsupported: '이 브라우저는 알림을 지원하지 않아요. 안드로이드는 크롬, 아이폰은 홈 화면에 추가한 앱에서 써주세요.',
-  blocked: '알림이 차단돼 있어요. 브라우저(또는 폰 설정)의 사이트 설정에서 이 사이트 알림을 허용한 뒤 다시 켜주세요.',
+  unsupported: '이 브라우저는 알림을 지원하지 않아요. 홈 화면에 추가한 앱(아이폰) 또는 크롬·삼성 인터넷(안드로이드)에서 써주세요.',
+  blocked: '알림이 차단돼 있어요. 아래 순서로 허용한 뒤 다시 켜주세요.\n\n',
 };
 
 /** 아이 헤더의 종 버튼 */
@@ -69,7 +86,7 @@ export async function syncPush() {
 
 async function turnOn() {
   const st = pushState();
-  if (HELP[st]) return confirmDialog({ title: '알림을 켤 수 없어요', message: HELP[st], ok: '알겠어요', cancel: '' });
+  if (HELP[st]) return confirmDialog({ title: '알림을 켤 수 없어요', message: HELP[st] + (st === 'blocked' ? deviceGuide() : ''), ok: '알겠어요', cancel: '' });
   const w = who();
   try {
     if (mode === 'demo') {
@@ -82,11 +99,19 @@ async function turnOn() {
     prefs.setPushOn(true);
     synced = `${spaceId()}|${w}|${state.data.role}`;
     set();
-    await push.showTest('🔔 알림이 켜졌어요', w === 'parent' ? '아이 소식을 이 폰으로 알려드릴게요' : '심부름이 생기면 바로 알려줄게요!');
-    if (mode === 'demo') toast('체험 모드라 실제 알림은 오지 않아요 (테스트 알림만)', '');
   } catch (e) {
-    toast(e.message || '알림을 켜지 못했어요', 'err');
+    // 짧은 토스트 대신 창으로: 왜 안 켜졌는지 + 이 폰에서 허용하는 방법
+    const denied = push.permission() === 'denied' || /허용되지 않았/.test(e.message || '');
+    return confirmDialog({
+      title: '알림을 켜지 못했어요',
+      message: `${e.message || e}\n\n${denied ? '이 폰에서 알림을 허용하는 방법:\n' + deviceGuide() : '앱을 완전히 닫았다가 다시 열고 한 번 더 눌러주세요.'}`,
+      ok: '알겠어요', cancel: '',
+    });
   }
+  try {
+    await push.showTest('🔔 알림이 켜졌어요', w === 'parent' ? '아이 소식을 이 폰으로 알려드릴게요' : '심부름이 생기면 바로 알려줄게요!');
+  } catch { /* 켜기는 성공. 테스트 알림만 못 띄움 */ }
+  toast(mode === 'demo' ? '체험 모드라 실제 알림은 오지 않아요 (테스트 알림만)' : '🔔 알림을 켰어요', 'ok');
 }
 
 async function turnOff() {

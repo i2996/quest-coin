@@ -363,3 +363,6 @@ export async function removePhoto(path) {
   if (d.photos) delete d.photos[path];
   write();
 }
+export async function serverPushTest() {
+  return { demo: true };
+}

@@ -45,7 +45,7 @@ export function pushSettingRow() {
   const sub = { on: '켜짐 · 아이 완료·코인 요청이 오면 알려줘요', off: '꺼짐 · 눌러서 켜기', blocked: '차단됨 · 눌러서 방법 보기', 'ios-install': '홈 화면에 추가해야 켤 수 있어요', unsupported: '이 브라우저는 지원 안 해요' }[st];
   return `<li class="p-row"><span class="m-emoji sm">${st === 'on' ? '🔔' : '🔕'}</span>
     <div class="grow tap" data-act="push-toggle"><b>이 기기 알림</b><small>${sub}</small></div>
-    ${st === 'on' ? '<button class="btn sm" data-act="push-test">테스트</button>' : ''}
+    ${st === 'on' ? '<button class="btn sm" data-act="push-test">점검</button>' : ''}
     <label class="switch"><input type="checkbox" data-act="push-toggle" ${st === 'on' ? 'checked' : ''} aria-label="이 기기 알림"><span></span></label></li>`;
 }
 
@@ -102,9 +102,62 @@ async function turnOff() {
   toast('알림을 껐어요');
 }
 
+const REASON = {
+  not_logged_in: '로그인 정보가 없어요. 앱을 새로고침한 뒤 다시 해주세요.',
+  not_registered: '이 폰이 알림 서버에 등록돼 있지 않아요. 알림을 껐다가 다시 켜주세요.',
+  no_vapid: '알림 서버에 알림 키(VAPID)가 없어요. Supabase → Edge Functions → Secrets 에 VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY 가 있어야 해요.',
+};
+
+/** 서버 테스트 결과 → 사람이 읽을 설명 (순수 함수) */
+export function explainTest(r, kidName = (id) => id) {
+  const lines = [];
+  if (r.ok) lines.push('✅ 알림 서버가 이 폰으로 알림을 보냈어요. 몇 초 안에 "서버 알림 테스트"가 오면 정상이에요.');
+  else if (r.reason === 'push_failed') {
+    const vapidMismatch = r.status === 403 || /vapid|mismatch|BadJwtToken/i.test(r.error || '');
+    lines.push(vapidMismatch
+      ? '❌ 알림 키가 맞지 않아요. 앱의 VAPID 공개 키와 Supabase 비밀값 VAPID_PRIVATE_KEY 가 한 쌍이 아니에요.'
+      : '❌ 알림 전송이 실패했어요.');
+    lines.push(`(오류 ${r.status || '?'}: ${String(r.error || '').slice(0, 120)})`);
+  } else lines.push('❌ ' + (REASON[r.reason] || (String(r.reason || '').startsWith('bad_vapid') ? '알림 키(VAPID) 값이 올바르지 않아요.' : `문제가 있어요 (${r.reason})`)));
+  if (r.as) lines.push('', `이 폰은 "${r.as === 'parent' ? '부모님' : kidName(r.as)}" 알림을 받아요.`);
+  if (r.parents != null) {
+    lines.push(`알림 켠 부모 폰: ${r.parents}대 · 알림 켠 아이: ${(r.kids || []).map(kidName).join(', ') || '없음'}`);
+  }
+  if (r.log) {
+    lines.push('', '최근 알림 기록:');
+    if (!r.log.length) lines.push('· 아직 없어요 (심부름 완료·요청이 생기면 여기에 쌓여요)');
+    for (const l of r.log) {
+      const t = new Date(l.created_at);
+      const when = `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+      lines.push(`· ${when} ${l.title || l.kind} → ${l.sent}대${l.note && l.note !== 'ok' ? ` (${l.note})` : ''}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+async function serverTest() {
+  if (mode === 'demo') {
+    await push.showTest().catch((e) => toast(e.message, 'err'));
+    return toast('체험 모드라 이 기기 테스트 알림만 보내요', '');
+  }
+  const w = who();
+  const kidName = (id) => state.data.kids.find((k) => k.id === id)?.name || '아이';
+  let msg;
+  try {
+    const sub = await push.current();
+    if (!sub) throw new Error(REASON.not_registered);
+    await api.savePush(spaceId(), sub, w === 'parent' ? null : w, w === 'parent'); // 지금 쓰는 사람으로 다시 등록
+    toast('알림 서버에 테스트를 요청했어요…');
+    msg = explainTest(await api.serverPushTest(sub.endpoint), kidName);
+  } catch (e) {
+    msg = '❌ ' + (e.message || e);
+  }
+  await confirmDialog({ title: '알림 점검 결과', message: msg, ok: '확인', cancel: '' });
+}
+
 export const actions = {
   'push-toggle': () => (pushState() === 'on' ? turnOff() : turnOn()),
-  'push-test': () => push.showTest().catch((e) => toast(e.message, 'err')),
+  'push-test': () => serverTest(),
   'push-banner-close': () => {
     prefs.hidePushBanner(who());
     set();

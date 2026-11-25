@@ -769,18 +769,8 @@ insert into public.qc_notify_config(id, url)
   values (1, 'https://ivfeomuxwzxyzmixiyyv.supabase.co/functions/v1/qc-notify')
   on conflict (id) do nothing;
 
--- 알림 보낸 기록 (최근 7일, 알림 함수가 씀) — 앱의 '테스트' 버튼에서 '최근 알림 기록'으로 보여줌
-create table if not exists public.qc_notify_log (
-  id         bigserial primary key,
-  space_id   uuid references public.qc_spaces(id) on delete cascade,
-  kind       text,
-  title      text,
-  sent       int not null default 0,
-  note       text,
-  created_at timestamptz not null default now()
-);
-create index if not exists qc_notify_log_space_idx on public.qc_notify_log(space_id, created_at desc);
-alter table public.qc_notify_log enable row level security;
+-- (예전 '알림 점검'용 기록 테이블은 정리)
+drop table if exists public.qc_notify_log;
 
 create or replace function public.qc_push_save(
   p_space_id uuid, p_endpoint text, p_p256dh text, p_auth text, p_kid_id uuid, p_parent boolean)

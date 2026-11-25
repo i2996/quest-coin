@@ -153,6 +153,17 @@ async function openSpace() {
 }
 window.addEventListener('qc:space', openSpace);
 
+// 안드로이드 앱: 앱을 보고 있을 때 온 알림은 화면 아래에 보여주고 새로 불러오기
+import('./data/push.js').then((push) => {
+  push.initNative();
+  window.addEventListener('qc:push-perm', () => state.data && set());
+  window.addEventListener('qc:push', (e) => {
+    const n = e.detail || {};
+    toast([n.title, n.body].filter(Boolean).join(' · ') || '새 소식이 있어요', 'ok');
+    reload().catch(() => {});
+  });
+});
+
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

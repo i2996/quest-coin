@@ -8,6 +8,11 @@ import { confirmDialog, toast } from './sheet.js';
 
 /** 'on' | 'off' | 'blocked' | 'ios-install' | 'unsupported' */
 export function pushState() {
+  if (push.isNative()) {
+    // 안드로이드 앱: 허용이 꺼져 있으면 '차단', 켰으면 '켜짐'
+    if (push.permission() === 'denied') return 'blocked';
+    return prefs.pushOn() && push.permission() === 'granted' ? 'on' : 'off';
+  }
   if (!push.supported()) return push.isIOS() && !push.isStandalone() ? 'ios-install' : 'unsupported';
   if (push.permission() === 'denied') return 'blocked';
   return prefs.pushOn() && push.permission() === 'granted' ? 'on' : 'off';
@@ -18,6 +23,9 @@ const host = () => (typeof location !== 'undefined' && location.host) || 'quest.
 
 /** 이 폰/브라우저에 맞는 알림 허용 방법 (순수 함수) */
 export function deviceGuide(ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '')) {
+  if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+    return '폰 설정 → 애플리케이션 → 퀘스트코인 → 알림 → "알림 허용" 켜기';
+  }
   if (/SamsungBrowser/i.test(ua)) {
     return `① 삼성 인터넷 → 메뉴(≡) → 설정 → 사이트 및 다운로드 → 알림 → 이 사이트(${host()}) "허용"\n`
       + '② 폰 설정 → 애플리케이션 → 퀘스트코인(없으면 삼성 인터넷) → 알림 → "알림 허용" 켜기\n'

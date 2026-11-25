@@ -28,6 +28,11 @@
   `supabase/functions/` 가 바뀌어 머지되면 GitHub Actions 가 알림 함수를 자동 배포한다.
   머지 후 '알림 함수 배포' 실행 결과를 확인하고, 실패하면 로그를 보고 고친 뒤 사용자에게 알린다(토큰 문제면 SUPABASE_ACCESS_TOKEN 확인).
 
+## 안드로이드 앱
+- `android-app/` (Capacitor 7): 앱은 `https://quest.wurii.com` 을 열기만 함. 웹 코드를 바꾸면 앱에도 바로 반영(APK 다시 만들 필요 없음).
+- `android-app/` 을 바꿔 머지하면 GitHub Actions '안드로이드 앱 만들기'가 APK 를 Releases(android-latest)에 올린다. 머지 후 결과 확인.
+- 앱 알림은 FCM: 구독 주소 `fcm:<토큰>` (js/data/push.js 의 isNative 분기), 알림 함수는 비밀값 FCM_SERVICE_ACCOUNT 로 보냄.
+
 ## 프로젝트 개요
 - 빌드 없는 정적 PWA + Supabase. 구조는 README.md 참고.
 - 계층: `js/data/` (remote=Supabase, local=체험 모드, 같은 함수 이름) → `js/core.js` (실행·다시 불러오기) → `js/ui/` (화면), 순수 계산은 `js/logic/`.

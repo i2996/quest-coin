@@ -61,6 +61,22 @@ Supabase 없이 먼저 써보려면 첫 화면의 **먼저 체험해보기** (�
    - 이름 `SUPABASE_ACCESS_TOKEN`, 값은 '우리 가족' 저장소에 넣은 것과 같은 토큰 (모르면 supabase.com → Account → Access Tokens 에서 새로 만들기)
 3. **Actions → 알림 함수 배포 → Run workflow** (이후엔 함수가 바뀌어 머지되면 자동 배포)
 
+## 📱 안드로이드 앱 (APK)
+
+삼성 인터넷 등 브라우저에서 알림이 안 오는 문제 때문에, 안드로이드 **진짜 알림(FCM)** 을 쓰는 앱을 만들어요.
+앱은 `https://quest.wurii.com` 을 그대로 열어서, GitHub 에 머지하면 앱 화면도 바로 바뀌어요. (앱 껍데기만 가끔 다시 설치)
+
+- 코드: `android-app/` (Capacitor). 앱 이름 `퀘스트코인`, 패키지 `com.wurii.quest`
+- 만들기: GitHub Actions **'안드로이드 앱 만들기'** → 저장소 **Releases → android-latest → quest-coin.apk**
+- 가족 설치용 서명 키(`android-app/android/app/family.keystore`)는 저장소에 있어요. 플레이스토어에 올릴 때는 따로 출시 키를 만들어요.
+- 알림 경로: 앱에서 알림 켜기 → FCM 토큰을 `qc_push_subs` 에 `fcm:<토큰>` 으로 저장 → 알림 함수가 FCM HTTP v1 으로 보냄
+
+### 처음 한 번 설정
+1. **Firebase**(console.firebase.google.com) 프로젝트 만들기 → 안드로이드 앱 추가(패키지 `com.wurii.quest`) → `google-services.json` 받기
+2. GitHub 저장소 Secrets 에 **`GOOGLE_SERVICES_JSON`** = 그 파일 내용 전체
+3. Firebase → 프로젝트 설정 → 서비스 계정 → **새 비공개 키 생성**(JSON) → Supabase → Edge Functions → Secrets 에 **`FCM_SERVICE_ACCOUNT`** = 그 파일 내용 전체
+4. Actions → '안드로이드 앱 만들기' 실행 → Releases 에서 APK 받아 설치
+
 ## 파일 구조
 
 ```

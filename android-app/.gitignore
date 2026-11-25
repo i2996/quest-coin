@@ -1,0 +1,11 @@
+node_modules/
+# Firebase 설정은 GitHub Secrets(GOOGLE_SERVICES_JSON)로 넣음
+android/app/google-services.json
+android/app/build/
+android/build/
+android/.gradle/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json

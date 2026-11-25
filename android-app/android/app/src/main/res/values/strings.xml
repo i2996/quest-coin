@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">퀘스트코인</string>
+    <string name="title_activity_main">퀘스트코인</string>
+    <string name="package_name">com.wurii.quest</string>
+    <string name="custom_url_scheme">com.wurii.quest</string>
+</resources>

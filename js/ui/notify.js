@@ -13,10 +13,13 @@ export function pushState() {
   return prefs.pushOn() && push.permission() === 'granted' ? 'on' : 'off';
 }
 
+/** 지금 앱 주소 (예: quest.wurii.com) */
+const host = () => (typeof location !== 'undefined' && location.host) || 'quest.wurii.com';
+
 /** 이 폰/브라우저에 맞는 알림 허용 방법 (순수 함수) */
 export function deviceGuide(ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '')) {
   if (/SamsungBrowser/i.test(ua)) {
-    return '① 삼성 인터넷 → 메뉴(≡) → 설정 → 사이트 및 다운로드 → 알림 → 이 사이트(i2996.github.io) "허용"\n'
+    return `① 삼성 인터넷 → 메뉴(≡) → 설정 → 사이트 및 다운로드 → 알림 → 이 사이트(${host()}) "허용"\n`
       + '② 폰 설정 → 애플리케이션 → 퀘스트코인(없으면 삼성 인터넷) → 알림 → "알림 허용" 켜기\n'
       + '③ 그래도 안 되면: 홈 화면의 퀘스트코인 아이콘 삭제 → 삼성 인터넷에서 다시 "홈 화면에 추가" → 아이콘으로 열어서 알림 켜기';
   }
@@ -24,10 +27,10 @@ export function deviceGuide(ua = (typeof navigator !== 'undefined' ? navigator.u
     return '① 사파리 공유 버튼(□↑) → "홈 화면에 추가" 한 앱으로 열기\n② 아이폰 설정 → 알림 → 퀘스트 코인 → 알림 허용';
   }
   if (/Android/i.test(ua)) {
-    return '① 크롬 → 메뉴(⋮) → 설정 → 사이트 설정 → 알림 → 이 사이트(i2996.github.io) "허용"\n'
+    return `① 크롬 → 메뉴(⋮) → 설정 → 사이트 설정 → 알림 → 이 사이트(${host()}) "허용"\n`
       + '② 폰 설정 → 애플리케이션 → 퀘스트코인(없으면 Chrome) → 알림 → "알림 허용" 켜기';
   }
-  return '브라우저 설정의 사이트 권한에서 이 사이트(i2996.github.io)의 알림을 허용해주세요.';
+  return `브라우저 설정의 사이트 권한에서 이 사이트(${host()})의 알림을 허용해주세요.`;
 }
 
 const HELP = {

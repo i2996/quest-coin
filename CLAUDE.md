@@ -23,6 +23,7 @@
   바꾼 화면을 직접 눌러보고 콘솔 오류가 없는지 확인한다. (체험 모드는 Supabase 없이 동작)
 - SQL 을 바꿨다면 가능하면 로컬 Postgres 에 `auth.uid()` 등을 흉내 낸 뒤 두 번 실행해 오류가 없는지 확인한다.
 - `js/config.js` 의 Supabase 주소/키, VAPID 공개 키는 바꾸지 않는다.
+- 앱 주소는 `https://quest.wurii.com` (GitHub Pages 사용자 지정 도메인). 루트의 `CNAME` 파일은 지우거나 바꾸지 않는다.
 - 알림 문구/대상을 바꿨다면 `supabase/functions/qc-notify/logic.js` 와 `tests/notify.test.mjs` 를 같이 고친다.
   `supabase/functions/` 가 바뀌어 머지되면 GitHub Actions 가 알림 함수를 자동 배포한다.
   머지 후 '알림 함수 배포' 실행 결과를 확인하고, 실패하면 로그를 보고 고친 뒤 사용자에게 알린다(토큰 문제면 SUPABASE_ACCESS_TOKEN 확인).

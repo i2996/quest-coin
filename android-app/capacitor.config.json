@@ -1,0 +1,18 @@
+{
+  "appId": "com.wurii.quest",
+  "appName": "퀘스트코인",
+  "webDir": "www",
+  "server": {
+    "url": "https://quest.wurii.com",
+    "androidScheme": "https",
+    "allowNavigation": ["quest.wurii.com", "*.supabase.co"]
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  }
+}

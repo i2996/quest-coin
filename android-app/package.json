@@ -1,0 +1,16 @@
+{
+  "name": "quest-coin-android",
+  "private": true,
+  "description": "퀘스트 코인 안드로이드 앱 (quest.wurii.com 을 여는 껍데기 + 진짜 알림)",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.4",
+    "@capacitor/core": "^7.4.4",
+    "@capacitor/push-notifications": "^7.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.4"
+  }
+}

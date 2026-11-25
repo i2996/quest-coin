@@ -32,7 +32,7 @@
    - **SQL Editor** 에 `supabase/schema.sql` 전체를 붙여넣고 Run (여러 번 실행해도 안전)
    - Authentication → Anonymous sign-ins 는 이미 켜져 있어야 해요 (우리 가족 앱과 같음)
 2. GitHub 저장소 **Settings → Pages → Deploy from a branch → `main` / `(root)`** 저장
-   → `https://<아이디>.github.io/quest-coin/` 로 열려요
+   → 사용자 지정 도메인 **https://quest.wurii.com** 으로 열려요 (저장소의 `CNAME` 파일, Cloudflare DNS: `quest` CNAME → `i2996.github.io`, DNS only)
 3. 부모님 폰: `새 가족 공간 만들기` → 가족 비밀번호 + 부모 PIN 설정 → 가족 탭에서 아이 추가
 4. 아이 폰: `가족 코드로 들어가기` (가족 탭의 `공유` 버튼으로 초대 링크 전달) → 자기 이름 선택 → 홈 화면에 추가
 

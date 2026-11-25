@@ -364,9 +364,6 @@ export async function removePhoto(path) {
   if (d.photos) delete d.photos[path];
   write();
 }
-export async function serverPushTest() {
-  return { demo: true };
-}
 
 // 기프티콘 쿠폰 (schema.sql 의 qc_coupon 과 같은 규칙)
 export async function coupon(id, action, note = null) {
